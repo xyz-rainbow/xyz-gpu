@@ -824,8 +824,9 @@ def update_menu(local_hostname, local_ip):
         print(f"  {C_CYAN}──────────────────────────────────────────────{C_RESET}")
         print(f"  {C_LIME}[1]{C_RESET} {T[lang]['update_check']}")
         print(f"  {C_LIME}[2]{C_RESET} {T[lang]['update_run_btn']}")
-        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['update_back']}")
-        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['update_back']}")
+        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         opc = input(f" {C_BOLD}{T[lang]['select_update_option']}{C_RESET}").strip()
@@ -857,9 +858,26 @@ def update_menu(local_hostname, local_ip):
             input(f"\n{T[lang]['press_enter']}")
             
         elif opc == "3":
-            break
+            print(f"\n🔄 {T[lang]['defaults_run']}")
+            state["master_hostname"] = local_hostname
+            state["master_ip"] = local_ip
+            state["model_name"] = "Qwen/Qwen2.5-VL-7B-Instruct"
+            state["pipeline_parallel_size"] = "2"
+            state["tensor_parallel_size"] = "1"
+            state["gpu_memory_utilization"] = "0.90"
+            state["quantization"] = ""
+            state["max_model_len"] = "2048"
+            state["startup_enabled"] = True
+            save_state(state)
+            update_startup_shortcut(True)
+            print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
+            input(f"\n{T[lang]['press_enter']}")
             
         elif opc == "4":
+            break
+            
+        elif opc == "5":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
