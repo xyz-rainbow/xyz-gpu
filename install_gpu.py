@@ -1442,15 +1442,17 @@ def models_menu(local_hostname, local_ip):
             
             hf_cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
             hf_cache = hf_cache.replace("\\", "/")
-            # Ejecutar docker para descargar el modelo de Hugging Face
+
+            # --entrypoint python3 anula el entrypoint de api_server.py de la imagen vllm
             cmd = [
                 "docker", "run", "--rm",
+                "--entrypoint", "python3",
                 "-v", f"{hf_cache}:/root/.cache/huggingface",
                 "vllm/vllm-openai:v0.4.2",
-                "python3", "-c", f"from huggingface_hub import snapshot_download; snapshot_download(repo_id='{active_model}')"
+                "-c",
+                f"from huggingface_hub import snapshot_download; snapshot_download(repo_id='{active_model}')"
             ]
             try:
-                # Mostrar salida a tiempo real
                 res = subprocess.run(cmd)
                 if res.returncode == 0:
                     print(f"\n{C_LIME}[SUCCESS] {T[lang]['models_download_success']}{C_RESET}")
@@ -1459,6 +1461,7 @@ def models_menu(local_hostname, local_ip):
             except Exception as e:
                 print(f"\n{C_PINK}[ERROR] {T[lang]['models_download_error']}: {e}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
+
             
         elif opc == "4":
             break
