@@ -1053,6 +1053,15 @@ def get_git_info():
     except Exception:
         return "Unknown", "N/A"
 
+def get_remote_git_info():
+    try:
+        # Intentamos obtener el commit de la rama remota que sigue a la actual
+        commit = subprocess.run(["git", "rev-parse", "--short", "@{u}"], capture_output=True, text=True, check=True).stdout.strip()
+        msg = subprocess.run(["git", "log", "-1", "--format=%s", "@{u}"], capture_output=True, text=True, check=True).stdout.strip()
+        return commit, msg
+    except Exception:
+        return "Unknown", "N/A"
+
 def check_remote_updates():
     try:
         subprocess.run(["git", "fetch"], capture_output=True, check=True, timeout=5)
@@ -1063,6 +1072,10 @@ def check_remote_updates():
         return False, str(e)
 
 def update_menu(local_hostname, local_ip):
+    # Hacer fetch inicial silencioso al abrir el menú de actualizaciones
+    print(f"\n📡 Conectando con GitHub para comprobar actualizaciones...")
+    up_to_date, err = check_remote_updates()
+    
     while True:
         state = load_state()
         master_hostname = state.get("master_hostname", "").upper()
@@ -1076,67 +1089,121 @@ def update_menu(local_hostname, local_ip):
         print_full_header(state, local_hostname, local_ip, role_label)
         print(f" {C_BOLD}{T[lang]['update_title']}:{C_RESET}")
         
-        commit, msg = get_git_info()
-        print(f"  {C_BOLD}{T[lang]['update_current']}:{C_RESET} {C_LIME}{commit}{C_RESET} (\"{msg}\")")
+        local_commit, local_msg = get_git_info()
+        remote_commit, remote_msg = get_remote_git_info()
+        
+        print(f"  {C_BOLD}{T[lang]['update_current']}:{C_RESET} {C_LIME}{local_commit}{C_RESET} (\"{local_msg}\")")
+        
+        if err:
+            print(f"  {C_BOLD}Versión remota:{C_RESET} {C_PINK}[ERR]{C_RESET} (No se pudo conectar: {err})")
+        else:
+            if up_to_date:
+                print(f"  {C_BOLD}Versión remota:{C_RESET} {C_LIME}{remote_commit}{C_RESET} (✔️ ¡Al día / Up to date!)")
+            else:
+                print(f"  {C_BOLD}Versión remota:{C_RESET} {C_ORANGE}{remote_commit}{C_RESET} (⚠️ ¡Actualización disponible! / Update available: \"{remote_msg}\")")
+                
         print(f"  {C_CYAN}──────────────────────────────────────────────{C_RESET}")
-        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['update_check']}")
-        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['update_run_btn']}")
-        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['update_back']}")
-        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['menu_exit']}")
+        
+        # Mostrar opción de aplicar actualización solo si hay cambios disponibles
+        if not up_to_date and not err:
+            print(f"  {C_LIME}[1]{C_RESET} {T[lang]['update_run_btn']} ({C_ORANGE}Aplicar {remote_commit}{C_RESET})")
+            print(f"  {C_LIME}[2]{C_RESET} Volver a comprobar actualizaciones / Re-check updates")
+            print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_defaults']}")
+            print(f"  {C_LIME}[4]{C_RESET} {T[lang]['update_back']}")
+            print(f"  {C_LIME}[5]{C_RESET} {T[lang]['menu_exit']}")
+        else:
+            print(f"  {C_LIME}[1]{C_RESET} Volver a comprobar actualizaciones / Re-check updates")
+            print(f"  {C_LIME}[2]{C_RESET} {T[lang]['settings_defaults']}")
+            print(f"  {C_LIME}[3]{C_RESET} {T[lang]['update_back']}")
+            print(f"  {C_LIME}[4]{C_RESET} {T[lang]['menu_exit']}")
+            
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         opc = input(f" {C_BOLD}{T[lang]['select_update_option']}{C_RESET}").strip()
         
-        if opc == "1":
-            print(f"\n📡 {T[lang]['update_checking']}")
-            up_to_date, err = check_remote_updates()
-            if err:
-                print(f"{C_PINK}[ERR] {T[lang]['update_error_check']}: {err}{C_RESET}")
-            elif up_to_date:
-                print(f"{C_LIME}✔️  {T[lang]['update_latest']}{C_RESET}")
-            else:
-                print(f"{C_ORANGE}⚠️  {T[lang]['update_available']}{C_RESET}")
-            input(f"\n{T[lang]['press_enter']}")
-            
-        elif opc == "2":
-            print(f"\n🔄 {T[lang]['update_run']}")
-            try:
-                res = subprocess.run(["git", "pull"], capture_output=True, text=True)
-                print(res.stdout)
-                if res.returncode == 0:
-                    print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
-                else:
-                    print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
-                    if res.stderr:
-                        print(f"Details: {res.stderr}")
-            except Exception as e:
-                print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
-            input(f"\n{T[lang]['press_enter']}")
-            
-        elif opc == "3":
-            print(f"\n🔄 {T[lang]['defaults_run']}")
-            state["master_hostname"] = local_hostname
-            state["master_ip"] = local_ip
-            state["model_name"] = "Qwen/Qwen2.5-VL-7B-Instruct"
-            state["pipeline_parallel_size"] = "2"
-            state["tensor_parallel_size"] = "1"
-            state["gpu_memory_utilization"] = "0.90"
-            state["quantization"] = ""
-            state["max_model_len"] = "2048"
-            state["startup_enabled"] = True
-            save_state(state)
-            update_startup_shortcut(True)
-            print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
-            trigger_auto_restart_if_active(state, local_hostname)
-            input(f"\n{T[lang]['press_enter']}")
-            
-        elif opc == "4":
-            break
-            
-        elif opc == "5":
-            print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
-            sys.exit(0)
+        # Mapeo condicional dinámico
+        if not up_to_date and not err:
+            # Flujo con actualización pendiente
+            if opc == "1":
+                print(f"\n🔄 {T[lang]['update_run']}")
+                try:
+                    res = subprocess.run(["git", "pull"], capture_output=True, text=True)
+                    print(res.stdout)
+                    if res.returncode == 0:
+                        print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
+                        up_to_date = True # marcar como al día tras pull exitoso
+                    else:
+                        print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
+                        if res.stderr:
+                            print(f"Details: {res.stderr}")
+                except Exception as e:
+                    print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
+                input(f"\n{T[lang]['press_enter']}")
+                
+            elif opc == "2":
+                print(f"\n📡 {T[lang]['update_checking']}")
+                up_to_date, err = check_remote_updates()
+                input(f"\n{T[lang]['press_enter']}")
+                
+            elif opc == "3":
+                print(f"\n🔄 {T[lang]['defaults_run']}")
+                state["master_hostname"] = local_hostname
+                state["master_ip"] = local_ip
+                state["model_name"] = "Qwen/Qwen2.5-VL-7B-Instruct"
+                state["pipeline_parallel_size"] = "2"
+                state["tensor_parallel_size"] = "1"
+                state["gpu_memory_utilization"] = "0.90"
+                state["quantization"] = ""
+                state["max_model_len"] = "2048"
+                state["startup_enabled"] = True
+                state["mobile_farm_enabled"] = False
+                state["mobile_farm_nodes"] = "7"
+                state["mobile_farm_start_port"] = "50051"
+                save_state(state)
+                update_startup_shortcut(True)
+                print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
+                input(f"\n{T[lang]['press_enter']}")
+                
+            elif opc == "4":
+                break
+                
+            elif opc == "5":
+                print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
+                sys.exit(0)
+        else:
+            # Flujo normal al día u offline
+            if opc == "1":
+                print(f"\n📡 {T[lang]['update_checking']}")
+                up_to_date, err = check_remote_updates()
+                input(f"\n{T[lang]['press_enter']}")
+                
+            elif opc == "2":
+                print(f"\n🔄 {T[lang]['defaults_run']}")
+                state["master_hostname"] = local_hostname
+                state["master_ip"] = local_ip
+                state["model_name"] = "Qwen/Qwen2.5-VL-7B-Instruct"
+                state["pipeline_parallel_size"] = "2"
+                state["tensor_parallel_size"] = "1"
+                state["gpu_memory_utilization"] = "0.90"
+                state["quantization"] = ""
+                state["max_model_len"] = "2048"
+                state["startup_enabled"] = True
+                state["mobile_farm_enabled"] = False
+                state["mobile_farm_nodes"] = "7"
+                state["mobile_farm_start_port"] = "50051"
+                save_state(state)
+                update_startup_shortcut(True)
+                print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
+                input(f"\n{T[lang]['press_enter']}")
+                
+            elif opc == "3":
+                break
+                
+            elif opc == "4":
+                print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
+                sys.exit(0)
 
 
 def get_downloaded_models():
