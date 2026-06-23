@@ -869,10 +869,14 @@ def settings_menu(local_hostname, local_ip):
         startup_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("startup_enabled", True) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
         print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
         
-        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['settings_ping']}")
-        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['settings_back']}")
-        print(f"  {C_LIME}[13]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['menu_bridge']}")
+        lang_str = "English" if lang == "es" else "Español"
+        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        
+        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[13]{C_RESET} {T[lang]['settings_ping']}")
+        print(f"  {C_LIME}[14]{C_RESET} {T[lang]['settings_back']}")
+        print(f"  {C_LIME}[15]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         sub_opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
@@ -979,6 +983,19 @@ def settings_menu(local_hostname, local_ip):
             print(f"\n{C_LIME}[OK] {T[lang]['startup_success']}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "10":
+            print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
+            try:
+                subprocess.run([sys.executable, "xyz_bridge.py"])
+            except Exception as e:
+                print(f"{C_PINK}Error launching xyz_bridge.py: {e}{C_RESET}")
+                input(f"\n{T[lang]['press_enter']}")
+        elif sub_opc == "11":
+            # Alternar idioma y guardarlo en el archivo de estado compartido
+            state["language"] = "en" if lang == "es" else "es"
+            save_state(state)
+            print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
+            time.sleep(0.5)
+        elif sub_opc == "12":
             print(f"\n🔄 {T[lang]['defaults_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
@@ -997,11 +1014,11 @@ def settings_menu(local_hostname, local_ip):
             print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
             trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "11":
-            ping_menu(local_hostname, local_ip)
-        elif sub_opc == "12":
-            break
         elif sub_opc == "13":
+            ping_menu(local_hostname, local_ip)
+        elif sub_opc == "14":
+            break
+        elif sub_opc == "15":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
@@ -1292,14 +1309,9 @@ def main():
             
         print(f" {C_LIME}[3]{C_RESET} {T[lang]['menu_models']}")
         print(f" {C_LIME}[4]{C_RESET} {T[lang]['menu_gpu']}")
-        print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_bridge']}")
-        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_update']}")
-        
-        # Opción de Idioma Dinámica
-        lang_str = "English" if lang == "es" else "Español"
-        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
-        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_instructions']}")
-        print(f" {C_LIME}[9]{C_RESET} {T[lang]['menu_exit']}")
+        print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_update']}")
+        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_instructions']}")
+        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
         
@@ -1367,24 +1379,9 @@ def main():
                     print(f"{C_PINK}{T[lang]['monitor_err']}: {e}{C_RESET}")
                 input(f"\n{T[lang]['press_enter_menu']}")
         elif opc == "5":
-            print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
-            try:
-                subprocess.run([sys.executable, "xyz_bridge.py"])
-            except Exception as e:
-                print(f"{C_PINK}Error launching xyz_bridge.py: {e}{C_RESET}")
-                input(f"\n{T[lang]['press_enter']}")
+            update_menu(local_hostname, local_ip)
                 
         elif opc == "6":
-            update_menu(local_hostname, local_ip)
-            
-        elif opc == "7":
-            # Alternar idioma y guardarlo en el archivo de estado compartido
-            state["language"] = "en" if lang == "es" else "es"
-            save_state(state)
-            print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
-            time.sleep(0.5)
-            
-        elif opc == "8":
             if lang == "es":
                 print(f"\n📝 {C_BOLD}INSTRUCCIONES DE USO DE XYZ-GPU:{C_RESET}")
                 print("  1. Requisitos: Asegúrate de tener Docker Desktop con integración de WSL2 activo.")
@@ -1397,18 +1394,17 @@ def main():
                 print("       Todas tus peticiones de inferencia deben ir a http://localhost:4000/v1.")
                 print("       LiteLLM se encargará del balanceo de carga y fallback hacia los móviles USB.")
                 print("  5. Puente USB (Móviles):")
-                print("     - Si conectas móviles al portátil, inicia la opción [5] (Puente USB) en el portátil y escoge Modo Local.")
-                print("     - En cualquier otro nodo (ej: Torre), inicia la opción [5] (Puente USB) y escoge Modo Remoto.")
+                print("     - Si conectas móviles al portátil, inicia el Puente USB en el portátil y escoge Modo Local.")
+                print("     - En cualquier otro nodo (ej: Torre), inicia el Puente USB y escoge Modo Remoto.")
                 print("       Esto conectará tu nodo al servidor ADB del portátil y expondrá los móviles localmente.")
                 print("       LiteLLM redirigirá automáticamente el tráfico sobrante o de failover hacia ellos.")
                 print("  6. Diagnóstico de GPU en Vivo:")
-                print("     - Lanza la opción [4] para ver el estado de la GPU en tiempo real de forma estática y")
-                print("       dinámica con refresco de 2 segundos. Presiona 'q' o Enter para regresar al menú.")
+                print("     - Lanza la opción [4] para ver el estado de la GPU en tiempo real de forma estática.")
                 print("  7. Migrar Master: Para alternar el PC principal, ve a ese equipo, selecciona")
                 print("     la opción [1] (Ajustes) -> opción [1] (Forzar Master), y luego inicialo con la opción [2].")
                 print("     El otro PC se adaptará a Worker automáticamente en su siguiente inicio.")
                 print("  8. Restaurar Configuración: Si configuras parámetros erróneos, selecciona la opción [1]")
-                print("     (Ajustes) -> opción [5] (Restaurar Valores por Defecto) para volver al modelo y")
+                print("     (Ajustes) -> opción [10] (Restaurar Valores por Defecto) para volver al modelo y")
                 print("     paralelismo originales (Qwen, PP=2, TP=1) y re-establecer el Master al PC local.")
                 print("  9. Apagado: Selecciona la opción [2] (cuando esté ON) en ambos PCs para liberar la VRAM.")
             else:
@@ -1423,23 +1419,22 @@ def main():
                 print("       All inference requests should be sent to http://localhost:4000/v1.")
                 print("       LiteLLM will manage load-balancing and fallback to USB mobile nodes.")
                 print("  5. USB Bridge (Mobile):")
-                print("     - If you connect phones to the laptop, run option [5] (USB Bridge) on it and select Local Mode.")
-                print("     - On any other node (e.g. Torre), run option [5] (USB Bridge) and select Remote Mode.")
+                print("     - If you connect phones to the laptop, run USB Bridge on it and select Local Mode.")
+                print("     - On any other node (e.g. Torre), run USB Bridge and select Remote Mode.")
                 print("       This connects your node to the laptop's ADB server, exposing phones locally.")
                 print("       LiteLLM will automatically route failover/spillover traffic to them.")
                 print("  6. Live GPU Diagnostics:")
-                print("     - Choose option [4] to view real-time GPU statistics (nvidia-smi), refreshing every 2s.")
-                print("       Press 'q' or Enter to return to the main menu.")
+                print("     - Choose option [4] to view real-time GPU statistics (nvidia-smi).")
                 print("  7. Migrate Master: To switch the main PC, go to that machine, select")
                 print("     Option [1] (Settings) -> Option [1] (Force Master), and then start it using Option [2].")
                 print("     The other PC will adapt as a Worker node on its next boot.")
                 print("  8. Restore Settings: If you write incorrect parameters, select Option [1] (Settings)")
-                print("     -> Option [5] (Restore Factory Defaults) to reset to default values (Qwen, PP=2, TP=1)")
+                print("     -> Option [10] (Restore Factory Defaults) to reset to default values (Qwen, PP=2, TP=1)")
                 print("     and set the Master back to the local PC.")
                 print("  9. Shutdown: Choose Option [2] (when ON) on both PCs to release GPU VRAM.")
             input(f"\n{T[lang]['press_enter_menu']}")
             
-        elif opc == "9":
+        elif opc == "7":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
