@@ -1,0 +1,36 @@
+services:
+  vllm-node:
+    image: vllm/vllm-openai:v0.4.2
+    container_name: vllm-cluster-node
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    network_mode: "host"
+    ipc: host
+    environment:
+      - NCCL_SOCKET_IFNAME=eth,en,wlan,ethernet,lo
+      - RAY_HEAD_IP=${MASTER_IP}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    command: >
+      bash -c "if [ \"$NODE_ROLE\" = \"head\" ]; then
+        echo '🚀 Iniciando Ray HEAD Node...';
+        ray start --head --port=6379 --block &
+        sleep 12;
+        echo '⚡ Levantando servidor vLLM OpenAI API...';
+        python3 -m vllm.entrypoints.openai.api_server \
+          --model ${MODEL_NAME} \
+          --pipeline-parallel-size ${PIPELINE_SIZE} \
+          --tensor-parallel-size ${TENSOR_SIZE} \
+          --gpu-memory-utilization ${GPU_MEM_LIMIT:-0.90} \
+          --host 0.0.0.0 \
+          --port 8000;
+
+      else
+        echo '📡 Conectando como Ray WORKER Node a ${MASTER_IP}:6379...';
+        ray start --address=\"${MASTER_IP}:6379\" --block;
+      fi"
