@@ -315,7 +315,7 @@ class _ClusterHandler(BaseHTTPRequestHandler):
 
 def _watchdog_loop():
     while True:
-        time.sleep(HEARTBEAT_INTERVAL)
+        time.sleep(5)  # Chequeo cada 5s para detección rápida
         now     = time.time()
         evicted = []
         with _lock:
@@ -335,51 +335,56 @@ def _watchdog_loop():
 
 def _worker_heartbeat_loop(master_ip: str, hostname: str, local_ip: str, gpus: int):
     """
-    Loop de heartbeat del worker.
-    - Si el master responde 404 ("unknown") → re-registrar
-    - Si el master no contesta N veces seguidas → intentar re-registrar
+    Loop de heartbeat del worker con auto-reconexion.
+    Estado 'registered' como flag: si falla cualquier heartbeat → re-registro.
+    Patron: intenta registrar hasta conseguirlo, luego manda pulsos.
     """
     import urllib.request
 
-    url_hb  = f"http://{master_ip}:{COORDINATOR_PORT}/heartbeat"
     url_reg = f"http://{master_ip}:{COORDINATOR_PORT}/register"
+    url_hb  = f"http://{master_ip}:{COORDINATOR_PORT}/heartbeat"
 
-    hb_payload  = json.dumps({"hostname": hostname, "ip": local_ip}).encode()
     reg_payload = json.dumps({"hostname": hostname, "ip": local_ip,
                               "vram": 0.0, "gpus": gpus}).encode()
-    hb_headers  = {"Content-Type": "application/json",
-                   "Content-Length": str(len(hb_payload))}
+    hb_payload  = json.dumps({"hostname": hostname, "ip": local_ip}).encode()
     reg_headers = {"Content-Type": "application/json",
                    "Content-Length": str(len(reg_payload))}
+    hb_headers  = {"Content-Type": "application/json",
+                   "Content-Length": str(len(hb_payload))}
 
-    failures = 0
-    MAX_FAILURES = 3  # re-registrar tras 3 fallos consecutivos
+    registered = False
 
     while True:
+        if not registered:
+            # Intentar registro hasta conseguirlo
+            try:
+                req  = urllib.request.Request(url_reg, data=reg_payload,
+                                              headers=reg_headers, method="POST")
+                resp = urllib.request.urlopen(req, timeout=5)
+                body = json.loads(resp.read())
+                registered = True
+                nodes = body.get('nodes', [])
+                print(f"\n{C_LIME}[DAEMON]{C_RESET} (Re)registrado en master {master_ip}")
+                print(f"  Nodos activos: {nodes}")
+            except Exception:
+                pass  # Master caido, reintentar en siguiente ciclo
+        else:
+            # Enviar heartbeat
+            try:
+                req  = urllib.request.Request(url_hb, data=hb_payload,
+                                              headers=hb_headers, method="POST")
+                resp = urllib.request.urlopen(req, timeout=5)
+                body = json.loads(resp.read())
+                # Si master no nos conoce (reinicio) → forzar re-registro
+                if body.get("action") == "re-register" or resp.status == 404:
+                    registered = False
+            except Exception:
+                # Conexion perdida → volver a estado no-registrado
+                registered = False
+                print(f"\n{C_ORANGE}[DAEMON] Master {master_ip} no responde, re-registrando...{C_RESET}")
+
+
         time.sleep(HEARTBEAT_INTERVAL)
-        try:
-            req  = urllib.request.Request(url_hb, data=hb_payload,
-                                          headers=hb_headers, method="POST")
-            resp = urllib.request.urlopen(req, timeout=5)
-            body = json.loads(resp.read())
-            failures = 0
-
-            # Master devuelve 404 si no nos conoce (p.ej. reinició)
-            if body.get("action") == "re-register":
-                raise ValueError("master asked for re-register")
-
-        except Exception:
-            failures += 1
-            if failures >= MAX_FAILURES:
-                # Intentar re-registro
-                try:
-                    req2 = urllib.request.Request(url_reg, data=reg_payload,
-                                                  headers=reg_headers, method="POST")
-                    urllib.request.urlopen(req2, timeout=8)
-                    print(f"\n{C_LIME}[DAEMON]{C_RESET} Re-registrado con master {master_ip}")
-                    failures = 0
-                except Exception:
-                    pass  # Master aún no disponible, reintentar en siguiente ciclo
 
 
 # ══════════════════════════════════════════════════════════════════════════════
