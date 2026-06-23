@@ -131,10 +131,20 @@ T = {
         "models_download_success": "Modelo descargado con éxito.",
         "models_download_error": "Error al descargar el modelo. Verifica tu conexión e ID de repositorio.",
         "models_prompt_custom": "Introduce el ID de Hugging Face del modelo (ej: Qwen/Qwen2.5-VL-7B-Instruct): ",
-        "menu_update": "Actualizar Orquestador (Git Pull desde GitHub)",
+        "menu_update": "Centro de Actualizaciones (Git)",
         "update_run": "Buscando actualizaciones en GitHub (git pull)...",
         "update_success": "Orquestador actualizado con éxito. Reinicia el asistente para aplicar los cambios.",
-        "update_failed": "No se pudo actualizar. Asegúrate de tener Git instalado y configurado en esta carpeta."
+        "update_failed": "No se pudo actualizar. Asegúrate de tener Git instalado y configurado en esta carpeta.",
+        "update_title": "CENTRO DE ACTUALIZACIONES",
+        "update_check": "Buscar actualizaciones (Comprobar estado remoto)",
+        "update_run_btn": "Aplicar actualizaciones disponibles (Git Pull)",
+        "update_current": "Versión local actual (Commit)",
+        "update_checking": "Conectando con GitHub para comprobar actualizaciones...",
+        "update_latest": "¡Estás en la última versión!",
+        "update_available": "Hay una nueva versión disponible en GitHub.",
+        "update_error_check": "No se pudo comprobar el estado remoto.",
+        "update_back": "Volver al Menú Principal",
+        "select_update_option": "Selecciona una opción de Actualización: ",
 
 
     },
@@ -239,10 +249,20 @@ T = {
         "models_download_success": "Model downloaded successfully.",
         "models_download_error": "Error downloading model. Check connection and repository ID.",
         "models_prompt_custom": "Enter Hugging Face Model ID (e.g., Qwen/Qwen2.5-VL-7B-Instruct): ",
-        "menu_update": "Update Orchestrator (Git Pull from GitHub)",
+        "menu_update": "Update Center (Git)",
         "update_run": "Checking for updates on GitHub (git pull)...",
         "update_success": "Orchestrator successfully updated. Please restart the assistant to apply changes.",
-        "update_failed": "Failed to update. Make sure Git is installed and configured in this folder."
+        "update_failed": "Failed to update. Make sure Git is installed and configured in this folder.",
+        "update_title": "UPDATE CENTER",
+        "update_check": "Check for updates (Check remote status)",
+        "update_run_btn": "Apply available updates (Git Pull)",
+        "update_current": "Current local version (Commit)",
+        "update_checking": "Connecting to GitHub to check for updates...",
+        "update_latest": "You are on the latest version!",
+        "update_available": "A new version is available on GitHub.",
+        "update_error_check": "Could not check remote status.",
+        "update_back": "Back to Main Menu",
+        "select_update_option": "Select an Update option: ",
     }
 
 
@@ -768,6 +788,82 @@ def settings_menu(local_hostname, local_ip):
 
 
 
+def get_git_info():
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        msg = subprocess.run(["git", "log", "-1", "--format=%s"], capture_output=True, text=True, check=True).stdout.strip()
+        return commit, msg
+    except Exception:
+        return "Unknown", "N/A"
+
+def check_remote_updates():
+    try:
+        subprocess.run(["git", "fetch"], capture_output=True, check=True, timeout=5)
+        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        remote = subprocess.run(["git", "rev-parse", "@{u}"], capture_output=True, text=True, check=True).stdout.strip()
+        return local == remote, None
+    except Exception as e:
+        return False, str(e)
+
+def update_menu(local_hostname, local_ip):
+    while True:
+        state = load_state()
+        master_hostname = state.get("master_hostname", "").upper()
+        lang = state.get("language", "es")
+        
+        if local_hostname == master_hostname:
+            role_label = f"{C_CYAN}[ MASTER / HEAD ]{C_RESET}"
+        else:
+            role_label = f"{C_PINK}[ WORKER NODE ]{C_RESET}"
+            
+        print_full_header(state, local_hostname, local_ip, role_label)
+        print(f" {C_BOLD}{T[lang]['update_title']}:{C_RESET}")
+        
+        commit, msg = get_git_info()
+        print(f"  {C_BOLD}{T[lang]['update_current']}:{C_RESET} {C_LIME}{commit}{C_RESET} (\"{msg}\")")
+        print(f"  {C_CYAN}──────────────────────────────────────────────{C_RESET}")
+        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['update_check']}")
+        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['update_run_btn']}")
+        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['update_back']}")
+        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+        
+        opc = input(f" {C_BOLD}{T[lang]['select_update_option']}{C_RESET}").strip()
+        
+        if opc == "1":
+            print(f"\n📡 {T[lang]['update_checking']}")
+            up_to_date, err = check_remote_updates()
+            if err:
+                print(f"{C_PINK}[ERR] {T[lang]['update_error_check']}: {err}{C_RESET}")
+            elif up_to_date:
+                print(f"{C_LIME}✔️  {T[lang]['update_latest']}{C_RESET}")
+            else:
+                print(f"{C_ORANGE}⚠️  {T[lang]['update_available']}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+            
+        elif opc == "2":
+            print(f"\n🔄 {T[lang]['update_run']}")
+            try:
+                res = subprocess.run(["git", "pull"], capture_output=True, text=True)
+                print(res.stdout)
+                if res.returncode == 0:
+                    print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
+                else:
+                    print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
+                    if res.stderr:
+                        print(f"Details: {res.stderr}")
+            except Exception as e:
+                print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+            
+        elif opc == "3":
+            break
+            
+        elif opc == "4":
+            print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
+            sys.exit(0)
+
+
 def get_downloaded_models():
     hf_hub = os.path.expanduser("~/.cache/huggingface/hub")
     downloaded = []
@@ -1057,19 +1153,7 @@ def main():
             input(f"\n{T[lang]['press_enter_menu']}")
             
         elif opc == "7":
-            print(f"\n🔄 {T[lang]['update_run']}")
-            try:
-                res = subprocess.run(["git", "pull"], capture_output=True, text=True)
-                print(res.stdout)
-                if res.returncode == 0:
-                    print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
-                else:
-                    print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
-                    if res.stderr:
-                        print(f"Details: {res.stderr}")
-            except Exception as e:
-                print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
-            input(f"\n{T[lang]['press_enter']}")
+            update_menu(local_hostname, local_ip)
             
         elif opc == "8":
             # Alternar idioma y guardarlo en el archivo de estado compartido
