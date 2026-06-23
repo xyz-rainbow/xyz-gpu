@@ -88,6 +88,9 @@ T = {
         "farm_success_nodes": "Número de nodos móviles actualizado con éxito.",
         "farm_success_port": "Puerto inicial actualizado con éxito.",
         "farm_back": "Volver a Ajustes",
+        "menu_nodes_config": "Configuración de Nodos (Master / IP / Ping)",
+        "nodes_config_title": "MENÚ CONFIGURACIÓN DE NODOS",
+        "nodes_config_back": "Volver a Ajustes",
 
 
 
@@ -215,6 +218,9 @@ T = {
         "farm_success_nodes": "Number of mobile nodes successfully updated.",
         "farm_success_port": "Start port successfully updated.",
         "farm_back": "Back to Settings",
+        "menu_nodes_config": "Node Configuration (Master / IP / Ping)",
+        "nodes_config_title": "NODE CONFIGURATION MENU",
+        "nodes_config_back": "Back to Settings",
 
 
 
@@ -859,6 +865,59 @@ def mobile_farm_menu(local_hostname, local_ip):
             sys.exit(0)
 
 
+def nodes_config_menu(local_hostname, local_ip):
+    while True:
+        state = load_state()
+        master_hostname = state.get("master_hostname", "").upper()
+        master_ip = state.get("master_ip", "")
+        lang = state.get("language", "es")
+        
+        if local_hostname == master_hostname:
+            role_label = f"{C_CYAN}[ MASTER / HEAD ]{C_RESET}"
+        else:
+            role_label = f"{C_PINK}[ WORKER NODE ]{C_RESET}"
+            
+        print_full_header(state, local_hostname, local_ip, role_label)
+        print(f" {C_BOLD}{T[lang]['nodes_config_title']}:{C_RESET}")
+        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['settings_migrate']}")
+        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['settings_manual_ip']}")
+        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_ping']}")
+        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['nodes_config_back']}")
+        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+        
+        opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
+        
+        if opc == "1":
+            print(f"\n🔄 {T[lang]['migrate_run']}")
+            state["master_hostname"] = local_hostname
+            state["master_ip"] = local_ip
+            save_state(state)
+            print(f"{C_LIME}[OK] {T[lang]['migrate_success']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "2":
+            print(f"\n📝 {C_BOLD}{T[lang]['manual_ip_prompt']}:{C_RESET}")
+            entered_ip = input(f" {T[lang]['manual_ip_input']} [{state.get('master_ip')}]: ").strip()
+            if entered_ip:
+                state["master_ip"] = entered_ip
+                state["master_hostname"] = "MANUAL-MASTER"
+                if "registered_nodes" not in state:
+                    state["registered_nodes"] = {}
+                state["registered_nodes"]["MANUAL-MASTER"] = entered_ip
+                save_state(state)
+                print(f"{C_LIME}[OK] {T[lang]['manual_ip_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "3":
+            ping_menu(local_hostname, local_ip)
+        elif opc == "4":
+            break
+        elif opc == "5":
+            print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
+            sys.exit(0)
+
+
 def settings_menu(local_hostname, local_ip):
     while True:
         state = load_state()
@@ -875,41 +934,31 @@ def settings_menu(local_hostname, local_ip):
             
         print_full_header(state, local_hostname, local_ip, role_label)
         print(f" {C_BOLD}{T[lang]['settings_title']}:{C_RESET}")
-        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['settings_migrate']}")
-        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['settings_model']}")
-        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_parallel']}")
-        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['settings_manual_ip']}")
-        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['settings_vram']}")
-        print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_quant']}")
-        print(f"  {C_LIME}[7]{C_RESET} {T[lang]['settings_context']}")
+        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['settings_model']}")
+        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['settings_parallel']}")
+        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_vram']}")
+        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['menu_nodes_config']}")
+        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['settings_quant']}")
+        print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_context']}")
         
         farm_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("mobile_farm_enabled", False) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
-        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['menu_farm']} {farm_status}")
+        print(f"  {C_LIME}[7]{C_RESET} {T[lang]['menu_farm']} {farm_status}")
         
         startup_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("startup_enabled", True) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
-        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
+        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
         
-        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['menu_bridge']}")
+        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['menu_bridge']}")
         lang_str = "English" if lang == "es" else "Español"
-        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
         
-        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[13]{C_RESET} {T[lang]['settings_ping']}")
-        print(f"  {C_LIME}[14]{C_RESET} {T[lang]['settings_back']}")
-        print(f"  {C_LIME}[15]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['settings_back']}")
+        print(f"  {C_LIME}[13]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         sub_opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
         
         if sub_opc == "1":
-            print(f"\n🔄 {T[lang]['migrate_run']}")
-            state["master_hostname"] = local_hostname
-            state["master_ip"] = local_ip
-            save_state(state)
-            print(f"{C_LIME}[OK] {T[lang]['migrate_success']}{C_RESET}")
-            trigger_auto_restart_if_active(state, local_hostname)
-            input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "2":
             print(f"\n📝 {C_BOLD}{T[lang]['model_prompt']}:{C_RESET}")
             new_model = input(f" {T[lang]['model_input']} [{state.get('model_name')}]: ").strip()
             if new_model:
@@ -918,7 +967,7 @@ def settings_menu(local_hostname, local_ip):
                 print(f"{C_LIME}[OK] {T[lang]['model_success']}{C_RESET}")
                 trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "3":
+        elif sub_opc == "2":
             print(f"\n📝 {C_BOLD}{T[lang]['parallel_prompt']}:{C_RESET}")
             new_pipe = input(f" Pipeline Parallel Size [{state.get('pipeline_parallel_size')}]: ").strip()
             new_tensor = input(f" Tensor Parallel Size [{state.get('tensor_parallel_size')}]: ").strip()
@@ -936,20 +985,7 @@ def settings_menu(local_hostname, local_ip):
                 print(f"{C_LIME}[OK] {T[lang]['parallel_success']}{C_RESET}")
                 trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "4":
-            print(f"\n📝 {C_BOLD}{T[lang]['manual_ip_prompt']}:{C_RESET}")
-            entered_ip = input(f" {T[lang]['manual_ip_input']} [{state.get('master_ip')}]: ").strip()
-            if entered_ip:
-                state["master_ip"] = entered_ip
-                state["master_hostname"] = "MANUAL-MASTER"
-                if "registered_nodes" not in state:
-                    state["registered_nodes"] = {}
-                state["registered_nodes"]["MANUAL-MASTER"] = entered_ip
-                save_state(state)
-                print(f"{C_LIME}[OK] {T[lang]['manual_ip_success']}{C_RESET}")
-                trigger_auto_restart_if_active(state, local_hostname)
-            input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "5":
+        elif sub_opc == "3":
             print(f"\n📝 {C_BOLD}{T[lang]['vram_prompt']}:{C_RESET}")
             entered_vram = input(f" {T[lang]['vram_input']} [{state.get('gpu_memory_utilization', '0.90')}]: ").strip()
             if entered_vram:
@@ -965,7 +1001,9 @@ def settings_menu(local_hostname, local_ip):
                 except ValueError:
                     print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "6":
+        elif sub_opc == "4":
+            nodes_config_menu(local_hostname, local_ip)
+        elif sub_opc == "5":
             print(f"\n📝 {C_BOLD}{T[lang]['quant_prompt']}:{C_RESET}")
             entered_quant = input(f" {T[lang]['quant_input']} [{state.get('quantization', '')}]: ").strip()
             if entered_quant.lower() in ["none", ""]:
@@ -976,7 +1014,7 @@ def settings_menu(local_hostname, local_ip):
             print(f"{C_LIME}[OK] {T[lang]['quant_success']}{C_RESET}")
             trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "7":
+        elif sub_opc == "6":
             print(f"\n📝 {C_BOLD}{T[lang]['context_prompt']}:{C_RESET}")
             entered_context = input(f" {T[lang]['context_input']} [{state.get('max_model_len', '2048')}]: ").strip()
             if entered_context:
@@ -992,9 +1030,9 @@ def settings_menu(local_hostname, local_ip):
                 except ValueError:
                     print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "8":
+        elif sub_opc == "7":
             mobile_farm_menu(local_hostname, local_ip)
-        elif sub_opc == "9":
+        elif sub_opc == "8":
             current_val = state.get("startup_enabled", True)
             new_val = not current_val
             state["startup_enabled"] = new_val
@@ -1002,20 +1040,20 @@ def settings_menu(local_hostname, local_ip):
             update_startup_shortcut(new_val)
             print(f"\n{C_LIME}[OK] {T[lang]['startup_success']}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "10":
+        elif sub_opc == "9":
             print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
             try:
                 subprocess.run([sys.executable, "xyz_bridge.py"])
             except Exception as e:
                 print(f"{C_PINK}Error launching xyz_bridge.py: {e}{C_RESET}")
                 input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "11":
+        elif sub_opc == "10":
             # Alternar idioma y guardarlo en el archivo de estado compartido
             state["language"] = "en" if lang == "es" else "es"
             save_state(state)
             print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
             time.sleep(0.5)
-        elif sub_opc == "12":
+        elif sub_opc == "11":
             print(f"\n🔄 {T[lang]['defaults_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
@@ -1034,11 +1072,9 @@ def settings_menu(local_hostname, local_ip):
             print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
             trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "13":
-            ping_menu(local_hostname, local_ip)
-        elif sub_opc == "14":
+        elif sub_opc == "12":
             break
-        elif sub_opc == "15":
+        elif sub_opc == "13":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
