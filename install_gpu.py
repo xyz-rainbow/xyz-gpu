@@ -5,6 +5,7 @@ import socket
 import subprocess
 import time
 import locale
+import threading
 
 # Asegurar que el directorio de trabajo es el del propio script para soportar cualquier ruta
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,6 +62,13 @@ T = {
         "settings_context": "Modificar Límite de Contexto (max-model-len)",
         "settings_defaults": "Restaurar Valores por Defecto (Valores de Fábrica)",
         "settings_ping": "Menú de Ping Diagnóstico (Nodos del Clúster)",
+        "settings_autodiscover": "Detectar Master Automáticamente en la Red Local",
+        "autodiscover_scanning": "Escaneando red local en busca de nodos xyz-gpu activos...",
+        "autodiscover_found": "Nodos detectados en la red",
+        "autodiscover_none": "No se encontró ningún nodo activo en la red local. Usa la opción [3] para configurar la IP manualmente.",
+        "autodiscover_select": "Selecciona el número del nodo master a usar (o Enter para cancelar): ",
+        "autodiscover_success": "Nodo master configurado automáticamente.",
+        "autodiscover_this": "(este equipo)",
         "settings_back": "Volver al Menú Principal",
         "select_settings_option": "Selecciona una opción de Ajustes: ",
         "manual_ip_prompt": "Modificar IP del Master Manualmente",
@@ -191,6 +199,13 @@ T = {
         "settings_context": "Modify Context Limit (max-model-len)",
         "settings_defaults": "Restore Factory Defaults",
         "settings_ping": "Diagnostic Ping Menu (Cluster Nodes)",
+        "settings_autodiscover": "Auto-Detect Master on Local Network",
+        "autodiscover_scanning": "Scanning local network for active xyz-gpu nodes...",
+        "autodiscover_found": "Nodes detected on network",
+        "autodiscover_none": "No active nodes found on the local network. Use option [3] to configure the IP manually.",
+        "autodiscover_select": "Select the master node number to use (or Enter to cancel): ",
+        "autodiscover_success": "Master node configured automatically.",
+        "autodiscover_this": "(this device)",
         "settings_back": "Back to Main Menu",
         "select_settings_option": "Select a Settings option: ",
         "manual_ip_prompt": "Modify Master IP Manually",
@@ -865,6 +880,43 @@ def mobile_farm_menu(local_hostname, local_ip):
             sys.exit(0)
 
 
+def scan_network_for_masters(local_ip, scan_ports=(4000, 10001), timeout=0.4):
+    """Escanea la subred /24 local buscando puertos de xyz-gpu activos.
+    Retorna lista de IPs activas ordenadas (la local al principio si aplica).
+    """
+    prefix = ".".join(local_ip.split(".")[:3])  # e.g. 192.168.0
+    found = []
+    lock = threading.Lock()
+
+    def check(ip):
+        for port in scan_ports:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(timeout)
+                if s.connect_ex((ip, port)) == 0:
+                    s.close()
+                    with lock:
+                        found.append(ip)
+                    return
+                s.close()
+            except Exception:
+                pass
+
+    threads = []
+    for i in range(1, 255):
+        ip = f"{prefix}.{i}"
+        t = threading.Thread(target=check, args=(ip,), daemon=True)
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join(timeout=timeout + 0.5)
+
+    # Ordenar: IP local primero, resto por número
+    found.sort(key=lambda ip: (0 if ip == local_ip else 1, int(ip.split(".")[-1])))
+    return found
+
+
 def nodes_config_menu(local_hostname, local_ip):
     while True:
         state = load_state()
@@ -879,6 +931,14 @@ def nodes_config_menu(local_hostname, local_ip):
             
         print_full_header(state, local_hostname, local_ip, role_label)
         print(f" {C_BOLD}{T[lang]['nodes_config_title']}:{C_RESET}")
+        
+        # Mostrar master actual si hay uno
+        if master_ip:
+            current_role_str = f"{C_LIME}(este equipo){C_RESET}" if master_ip == local_ip else f"{C_ORANGE}{master_hostname}{C_RESET}"
+            print(f"  {C_BOLD}Master actual:{C_RESET} {C_CYAN}{master_ip}{C_RESET} {current_role_str}")
+            print(f"  {C_CYAN}──────────────────────────────────────────────{C_RESET}")
+        
+        print(f"  {C_LIME}[0]{C_RESET} 🔍 {T[lang]['settings_autodiscover']}")
         print(f"  {C_LIME}[1]{C_RESET} {T[lang]['settings_migrate']}")
         print(f"  {C_LIME}[2]{C_RESET} {T[lang]['settings_manual_ip']}")
         print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_ping']}")
@@ -888,7 +948,47 @@ def nodes_config_menu(local_hostname, local_ip):
         
         opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
         
-        if opc == "1":
+        if opc == "0":
+            print(f"\n🔍 {C_CYAN}{T[lang]['autodiscover_scanning']}{C_RESET}")
+            print(f"  {C_BOLD}({T[lang]['press_enter'] if False else 'Esto puede tardar ~5 segundos / This may take ~5 seconds...'}){C_RESET}")
+            active_ips = scan_network_for_masters(local_ip)
+            print()
+            if not active_ips:
+                print(f"  {C_PINK}⚠️  {T[lang]['autodiscover_none']}{C_RESET}")
+            else:
+                print(f"  {C_LIME}✅ {T[lang]['autodiscover_found']}:{C_RESET}")
+                print()
+                for idx, ip in enumerate(active_ips, 1):
+                    is_local = " ← " + T[lang]['autodiscover_this'] if ip == local_ip else ""
+                    is_current = f" {C_ORANGE}[master actual]{C_RESET}" if ip == master_ip else ""
+                    print(f"    {C_LIME}[{idx}]{C_RESET} {C_BOLD}{ip}{C_RESET}{is_current}{C_CYAN}{is_local}{C_RESET}")
+                print()
+                sel = input(f" {T[lang]['autodiscover_select']}").strip()
+                if sel:
+                    try:
+                        num = int(sel) - 1
+                        if 0 <= num < len(active_ips):
+                            chosen_ip = active_ips[num]
+                            state["master_ip"] = chosen_ip
+                            if chosen_ip == local_ip:
+                                state["master_hostname"] = local_hostname
+                            else:
+                                # Intentar resolver hostname
+                                try:
+                                    resolved = socket.gethostbyaddr(chosen_ip)[0].split(".")[0].upper()
+                                except Exception:
+                                    resolved = "AUTO-MASTER"
+                                state["master_hostname"] = resolved
+                            if "registered_nodes" not in state:
+                                state["registered_nodes"] = {}
+                            state["registered_nodes"][state["master_hostname"]] = chosen_ip
+                            save_state(state)
+                            print(f"\n{C_LIME}[OK] {T[lang]['autodiscover_success']} → {C_BOLD}{chosen_ip}{C_RESET} ({state['master_hostname']}){C_RESET}")
+                            trigger_auto_restart_if_active(state, local_hostname)
+                    except (ValueError, IndexError):
+                        pass
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "1":
             print(f"\n🔄 {T[lang]['migrate_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
