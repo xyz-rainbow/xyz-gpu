@@ -6,9 +6,15 @@ import subprocess
 import time
 import locale
 
+# Asegurar que el directorio de trabajo es el del propio script para soportar cualquier ruta
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir:
+    os.chdir(script_dir)
+
 # Habilitar soporte ANSI en Windows de forma nativa
 if os.name == 'nt':
     os.system('')
+
 
 # Paleta Estética Cyberpunk / RAINBOWTECHNOLOGY
 C_LIME = "\033[38;5;118m"      # #bfffa6-ish
