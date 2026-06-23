@@ -488,6 +488,8 @@ def trigger_auto_restart_if_active(state, local_hostname):
 def generate_env_file(hostname, role, master_ip, state):
     env_filename = f".env.{hostname}"
     try:
+        hf_cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+        hf_cache = hf_cache.replace("\\", "/")
         with open(env_filename, "w", encoding="utf-8") as f:
             f.write(f"NODE_ROLE={role}\n")
             f.write(f"MASTER_IP={master_ip}\n")
@@ -497,12 +499,53 @@ def generate_env_file(hostname, role, master_ip, state):
             f.write(f"GPU_MEM_LIMIT={state.get('gpu_memory_utilization', '0.90')}\n")
             f.write(f"VLLM_QUANTIZATION={state.get('quantization', '')}\n")
             f.write(f"MAX_MODEL_LEN={state.get('max_model_len', '2048')}\n")
+            f.write(f"HF_CACHE_DIR={hf_cache}\n")
         return env_filename
     except Exception as e:
         print(f"\n{C_PINK}[ERR] Error al generar el archivo de entorno {env_filename}: {e}{C_RESET}")
         return None
 
-
+def spawn_detached_notifications(lang):
+    if os.name == 'nt':
+        text_5_es = "El clúster [XYZ-GPU] está en ejecución (5m). Recuerda verificar el auto-inicio."
+        text_5_en = "The [XYZ-GPU] cluster is running (5m). Remember to check the auto-start."
+        text_15_es = "El clúster [XYZ-GPU] sigue activo en segundo plano (15m). Libera las GPUs si no las usas."
+        text_15_en = "The [XYZ-GPU] cluster is still active in the background (15m). Release GPUs if not in use."
+        
+        t5 = text_5_es if lang == "es" else text_5_en
+        t15 = text_15_es if lang == "es" else text_15_en
+        
+        ps_cmd = f"""Start-Sleep -Seconds 300
+$docker = docker ps --filter "name=vllm-cluster-node" --filter "status=running" --format "{{{{.Names}}}}"
+if ($docker -like "*vllm-cluster-node*") {{
+    [void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+    $objNotifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $objNotifyIcon.Icon = [System.Drawing.SystemIcons]::Information
+    $objNotifyIcon.BalloonTipIcon = 'Info'
+    $objNotifyIcon.BalloonTipText = '{t5}'
+    $objNotifyIcon.BalloonTipTitle = '[XYZ-GPU]'
+    $objNotifyIcon.Visible = $True
+    $objNotifyIcon.ShowBalloonTip(10000)
+}}
+Start-Sleep -Seconds 600
+$docker = docker ps --filter "name=vllm-cluster-node" --filter "status=running" --format "{{{{.Names}}}}"
+if ($docker -like "*vllm-cluster-node*") {{
+    [void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+    $objNotifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $objNotifyIcon.Icon = [System.Drawing.SystemIcons]::Information
+    $objNotifyIcon.BalloonTipIcon = 'Info'
+    $objNotifyIcon.BalloonTipText = '{t15}'
+    $objNotifyIcon.BalloonTipTitle = '[XYZ-GPU]'
+    $objNotifyIcon.Visible = $True
+    $objNotifyIcon.ShowBalloonTip(10000)
+}}
+"""
+        try:
+            subprocess.Popen(["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, 
+                             creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+        except Exception:
+            pass
 
 def print_banner():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -977,10 +1020,12 @@ def models_menu(local_hostname, local_ip):
             print(f"\n📥 {T[lang]['models_download_start']}")
             print(f"📦 Modelo: {C_BOLD}{active_model}{C_RESET}\n")
             
+            hf_cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+            hf_cache = hf_cache.replace("\\", "/")
             # Ejecutar docker para descargar el modelo de Hugging Face
             cmd = [
                 "docker", "run", "--rm",
-                "-v", f"{os.path.expanduser('~')}/.cache/huggingface:/root/.cache/huggingface",
+                "-v", f"{hf_cache}:/root/.cache/huggingface",
                 "vllm/vllm-openai:v0.4.2",
                 "python3", "-c", f"from huggingface_hub import snapshot_download; snapshot_download(repo_id='{active_model}')"
             ]
@@ -1107,6 +1152,16 @@ def main():
                     continue
                     
                 print(f"🚀  {C_BOLD}{C_PURPLE}[DOCKER]{C_RESET} {T[lang]['cfg_launching']}")
+                try:
+                    subprocess.run(["docker", "compose", "--env-file", env_file, "up", "-d"], check=True)
+                    print(f"\n{C_LIME}[SUCCESS] {T[lang]['cfg_success_start']}{C_RESET}")
+                    if current_role == "head":
+                        print(f"  ├── API Endpoint:     {C_CYAN}http://localhost:8000/v1{C_RESET}")
+                        print(f"  └── Ray Dashboard:    {C_PURPLE}http://localhost:8265{C_RESET}")
+                    spawn_detached_notifications(lang)
+                except Exception as e:
+                    print(f"\n{C_PINK}[ERROR] {T[lang]['cfg_err_start']}: {e}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
         elif opc == "5":
             print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
             try:

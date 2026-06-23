@@ -15,7 +15,7 @@ services:
       - NCCL_SOCKET_IFNAME=eth,en,wlan,ethernet,lo
       - RAY_HEAD_IP=${MASTER_IP}
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
     command: >
       bash -c "if [ \"$NODE_ROLE\" = \"head\" ]; then
         echo '🚀 Iniciando Ray HEAD Node...';
