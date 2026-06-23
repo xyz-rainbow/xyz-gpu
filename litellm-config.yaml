@@ -25,6 +25,46 @@ model_list:
       rpm: 15
     fallback_value: true
 
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-3
+      api_base: http://localhost:50053/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-4
+      api_base: http://localhost:50054/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-5
+      api_base: http://localhost:50055/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-6
+      api_base: http://localhost:50056/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-7
+      api_base: http://localhost:50057/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
 router_settings:
   routing_strategy: failover
   allowed_fails: 2
