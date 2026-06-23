@@ -1162,18 +1162,26 @@ def update_menu(local_hostname, local_ip):
             if not up_to_date and not err:
                 print(f"\n🔄 {T[lang]['update_run']}")
                 try:
+                    # Descartar cambios locales en archivos autogenerados para evitar conflictos
+                    subprocess.run(["git", "checkout", "--", "litellm-config.yaml"], capture_output=True)
                     res = subprocess.run(["git", "pull"], capture_output=True, text=True)
                     print(res.stdout)
                     if res.returncode == 0:
                         print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
-                        up_to_date = True # marcar como al día tras pull exitoso
+                        up_to_date = True
+                        # Reinicio automático del proceso tras actualización exitosa
+                        msg = "Reiniciando el gestor automáticamente..." if lang == "es" else "Restarting manager automatically..."
+                        print(f"\n🔁 {C_CYAN}{msg}{C_RESET}")
+                        time.sleep(2)
+                        os.execv(sys.executable, [sys.executable] + sys.argv)
                     else:
                         print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
                         if res.stderr:
                             print(f"Details: {res.stderr}")
+                        input(f"\n{T[lang]['press_enter']}")
                 except Exception as e:
                     print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
-                input(f"\n{T[lang]['press_enter']}")
+                    input(f"\n{T[lang]['press_enter']}")
             else:
                 # Opción deshabilitada
                 print(f"\n{C_PINK}Esta opción no está disponible porque ya estás al día.{C_RESET}" if lang == "es" else f"\n{C_PINK}This option is unavailable because you are up to date.{C_RESET}")
