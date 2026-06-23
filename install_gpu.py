@@ -1293,13 +1293,12 @@ def main():
         print(f" {C_LIME}[3]{C_RESET} {T[lang]['menu_models']}")
         print(f" {C_LIME}[4]{C_RESET} {T[lang]['menu_gpu']}")
         print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_bridge']}")
-        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_instructions']}")
-        
-        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_update']}")
+        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_update']}")
         
         # Opción de Idioma Dinámica
         lang_str = "English" if lang == "es" else "Español"
-        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_instructions']}")
         print(f" {C_LIME}[9]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
@@ -1376,6 +1375,16 @@ def main():
                 input(f"\n{T[lang]['press_enter']}")
                 
         elif opc == "6":
+            update_menu(local_hostname, local_ip)
+            
+        elif opc == "7":
+            # Alternar idioma y guardarlo en el archivo de estado compartido
+            state["language"] = "en" if lang == "es" else "es"
+            save_state(state)
+            print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
+            time.sleep(0.5)
+            
+        elif opc == "8":
             if lang == "es":
                 print(f"\n📝 {C_BOLD}INSTRUCCIONES DE USO DE XYZ-GPU:{C_RESET}")
                 print("  1. Requisitos: Asegúrate de tener Docker Desktop con integración de WSL2 activo.")
@@ -1429,16 +1438,6 @@ def main():
                 print("     and set the Master back to the local PC.")
                 print("  9. Shutdown: Choose Option [2] (when ON) on both PCs to release GPU VRAM.")
             input(f"\n{T[lang]['press_enter_menu']}")
-            
-        elif opc == "7":
-            update_menu(local_hostname, local_ip)
-            
-        elif opc == "8":
-            # Alternar idioma y guardarlo en el archivo de estado compartido
-            state["language"] = "en" if lang == "es" else "es"
-            save_state(state)
-            print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
-            time.sleep(0.5)
             
         elif opc == "9":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
