@@ -24,6 +24,21 @@ VLLM_PORT         = 8000
 DEBOUNCE_DELAY    = 2.5   # segundos de espera antes de recargar LiteLLM
 STATE_FILE        = "cluster_state.json"
 
+
+# ─── Logger del daemon (no contamina el TUI) ─────────────────────────────────
+_LOG_FILE = os.path.join(_script_dir, "cluster_daemon.log")
+
+def _log(msg: str):
+    """Escribe en el log del daemon en vez de stdout."""
+    try:
+        ts = time.strftime("%H:%M:%S")
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            # Limpiar códigos ANSI para el archivo de log
+            import re as _re
+            clean = _re.sub(r'\033\[[0-9;]*m', '', msg)
+            f.write(f"[{ts}] {clean}\n")
+    except Exception:
+        pass
 # ─── Estado en proceso ────────────────────────────────────────────────────────
 _active_nodes: dict = {}
 _lock          = threading.Lock()
@@ -154,9 +169,9 @@ def _rewrite_litellm_config(nodes_snapshot: dict):
         with open(config_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
         n = len(nodes_snapshot)
-        print(f"\n{C_CYAN}[DAEMON]{C_RESET} litellm-config.yaml → {n} nodo(s) GPU activo(s)")
+        _log(f"[DAEMON] litellm-config.yaml → {n} nodo(s) GPU activo(s)")
     except Exception as e:
-        print(f"\n{C_PINK}[DAEMON][ERR]{C_RESET} config write failed: {e}")
+        _log(f"[DAEMON][ERR] config write failed: {e}")
 
 
 def _do_reload_litellm():
@@ -170,9 +185,9 @@ def _do_reload_litellm():
             ["docker", "compose", "--env-file", env_file, "restart", "litellm"],
             capture_output=True, timeout=30
         )
-        print(f"{C_CYAN}[DAEMON]{C_RESET} {C_LIME}LiteLLM recargado.{C_RESET}")
+        _log(f"[DAEMON]{C_RESET} {C_LIME}LiteLLM recargado.{C_RESET}")
     except Exception as e:
-        print(f"{C_PINK}[DAEMON][ERR]{C_RESET} LiteLLM reload: {e}")
+        _log(f"[DAEMON][ERR]{C_RESET} LiteLLM reload: {e}")
 
 
 def _schedule_reload():
@@ -192,9 +207,9 @@ def _schedule_reload():
 
 def _on_cluster_change(nodes_snapshot: dict, reason: str):
     """Llamado en cada JOIN/LEAVE/EVICT — reescribe config y agenda reload."""
-    print(f"\n{C_LIME}[DAEMON] {reason}{C_RESET}")
+    _log(f"[DAEMON] {reason}")
     active_list = list(nodes_snapshot.keys())
-    print(f"  Nodos activos: {active_list or ['(ninguno)']}")
+    _log(f"  Nodos activos: {active_list or ['(ninguno)']}") 
 
     # Persistir en cluster_state.json
     state = _load_state()
@@ -364,8 +379,8 @@ def _worker_heartbeat_loop(master_ip: str, hostname: str, local_ip: str, gpus: i
                 body = json.loads(resp.read())
                 registered = True
                 nodes = body.get('nodes', [])
-                print(f"\n{C_LIME}[DAEMON]{C_RESET} (Re)registrado en master {master_ip}")
-                print(f"  Nodos activos: {nodes}")
+                _log(f"[DAEMON] (Re)registrado en master {master_ip}")
+                _log(f"  Nodos activos: {nodes}")
             except Exception:
                 pass  # Master caido, reintentar en siguiente ciclo
         else:
@@ -381,7 +396,7 @@ def _worker_heartbeat_loop(master_ip: str, hostname: str, local_ip: str, gpus: i
             except Exception:
                 # Conexion perdida → volver a estado no-registrado
                 registered = False
-                print(f"\n{C_ORANGE}[DAEMON] Master {master_ip} no responde, re-registrando...{C_RESET}")
+                _log(f"[DAEMON] Master {master_ip} no responde, re-registrando...{C_RESET}")
 
 
         time.sleep(HEARTBEAT_INTERVAL)
@@ -413,7 +428,7 @@ def start_master_daemon(local_ip: str):
     try:
         server = HTTPServer(("0.0.0.0", COORDINATOR_PORT), _ClusterHandler)
     except OSError:
-        print(f"{C_ORANGE}[DAEMON] Puerto {COORDINATOR_PORT} en uso — daemon omitido.{C_RESET}")
+        _log(f"[DAEMON] Puerto {COORDINATOR_PORT} en uso — daemon omitido.{C_RESET}")
         return
 
     _server_thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -421,8 +436,8 @@ def start_master_daemon(local_ip: str):
     threading.Thread(target=_watchdog_loop, daemon=True).start()
 
     _daemon_ready = True
-    print(f"\n{C_LIME}[DAEMON]{C_RESET} Coordinador master iniciado en :{COORDINATOR_PORT}")
-    print(f"  {C_BOLD}{local_hostname}{C_RESET} ({local_ip}) — {gpus} GPU(s)")
+    _log(f"[DAEMON]{C_RESET} Coordinador master iniciado en :{COORDINATOR_PORT}")
+    _log(f"  {C_BOLD}{local_hostname}{C_RESET} ({local_ip}) — {gpus} GPU(s)")
 
 
 def stop_master_daemon():
@@ -455,11 +470,11 @@ def register_as_worker(master_ip: str):
         req  = urllib.request.Request(url, data=payload, headers=headers, method="POST")
         resp = urllib.request.urlopen(req, timeout=8)
         body = json.loads(resp.read())
-        print(f"\n{C_LIME}[DAEMON]{C_RESET} Registrado con master {master_ip}")
-        print(f"  Nodos en el cluster: {body.get('nodes', [])}")
+        _log(f"[DAEMON] Registrado con master {master_ip}")
+        _log(f"  Nodos en el cluster: {body.get('nodes', [])}")
     except Exception as e:
-        print(f"\n{C_ORANGE}[DAEMON] No se pudo registrar en {master_ip}:{COORDINATOR_PORT}: {e}{C_RESET}")
-        print(f"  Asegúrate de que el master tiene Docker Up activo.")
+        _log(f"[DAEMON] No se pudo registrar en {master_ip}:{COORDINATOR_PORT}: {e}{C_RESET}")
+        _log(f"  Asegúrate de que el master tiene Docker Up activo.")
 
     _heartbeat_thread = threading.Thread(
         target=_worker_heartbeat_loop,
@@ -481,9 +496,9 @@ def unregister_as_worker(master_ip: str):
     try:
         req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
         urllib.request.urlopen(req, timeout=5)
-        print(f"\n{C_LIME}[DAEMON]{C_RESET} Desregistrado del master {master_ip}")
+        _log(f"[DAEMON]{C_RESET} Desregistrado del master {master_ip}")
     except Exception as e:
-        print(f"\n{C_ORANGE}[DAEMON] No se pudo desregistrar: {e}{C_RESET}")
+        _log(f"[DAEMON] No se pudo desregistrar: {e}{C_RESET}")
 
 
 def notify_master_settings_changed(master_ip: str):
@@ -538,3 +553,4 @@ def is_master_daemon_running(master_ip: str = "127.0.0.1") -> bool:
         return ok
     except Exception:
         return False
+

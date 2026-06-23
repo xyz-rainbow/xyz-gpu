@@ -739,27 +739,37 @@ def print_full_header(state, local_hostname, local_ip, role_label):
     else:
         vram_display = f"{vram_percent}% ({vram_val})"
     print(f"  ├── {T[lang]['vram_allocation']}:       {vram_display}")
-    print(f"  └── {C_BOLD}{T[lang]['cluster_status']}:   [ {status_label}{C_BOLD} ]{C_RESET}")
 
-    # ── Nodos activos en tiempo real (desde el daemon del master) ──
-    if _DAEMON_AVAILABLE and running:
+
+    # ── Nodos del clúster — siempre visible cuando hay datos ──
+    nodes_line = ""
+    if _DAEMON_AVAILABLE:
         try:
             active = _cd.get_active_nodes(master_ip)
             if active:
                 daemon_up = _cd.is_master_daemon_running(master_ip)
-                daemon_lbl = f"{C_LIME}● LIVE{C_RESET}" if daemon_up else f"{C_ORANGE}○ offline{C_RESET}"
-                print(f"  {C_BOLD}Cluster nodes [{daemon_lbl}{C_BOLD}]:{C_RESET}")
+                conn_dot  = f"{C_LIME}●{C_RESET}" if daemon_up else f"{C_ORANGE}○{C_RESET}"
+                n_count   = len(active)
+                # Construir etiquetas compactas de cada nodo
+                node_tags = []
                 for h, info in active.items():
-                    n_ip   = info.get('ip', '?')
-                    n_gpus = info.get('gpus', 0)
-                    is_me  = h == local_hostname
+                    n_ip   = info.get("ip", "?") if isinstance(info, dict) else str(info)
+                    n_gpus = info.get("gpus", "?") if isinstance(info, dict) else "?"
                     is_mas = h == master_hostname
-                    tag    = f"{C_RED}[M]{C_RESET}" if is_mas else f"{C_CYAN}[W]{C_RESET}"
-                    me_tag = f" {C_LIME}← you{C_RESET}" if is_me else ""
-                    print(f"    {tag} {C_BOLD}{h}{C_RESET} {n_ip}  {n_gpus} GPU(s){me_tag}")
+                    is_me  = h == local_hostname
+                    role_c = C_RED if is_mas else C_CYAN
+                    me_sfx = f" {C_LIME}←{C_RESET}" if is_me else ""
+                    node_tags.append(f"{role_c}{C_BOLD}{h}{C_RESET}({n_ip}/{n_gpus}GPU){me_sfx}")
+                nodes_summary = "  ".join(node_tags)
+                print(f"  ├── {C_BOLD}Cluster nodes:{C_RESET}    {conn_dot} [{n_count}] {nodes_summary}")
+            else:
+                # Sin datos del daemon todavía
+                if is_cluster_running():
+                    print(f"  ├── {C_BOLD}Cluster nodes:{C_RESET}    \033[90m● Coordinador iniciando...\033[0m")
         except Exception:
             pass
 
+    print(f"  └── {C_BOLD}{T[lang]['cluster_status']}:   [ {status_label}{C_BOLD} ]{C_RESET}")
     print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
 
