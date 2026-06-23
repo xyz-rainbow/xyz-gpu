@@ -43,6 +43,7 @@ T = {
 
         "menu_stop": "Apagar / Liberar GPUs (Docker Compose Down)",
         "menu_gpu": "Diagnóstico de GPU de NVIDIA (nvidia-smi)",
+        "menu_bridge": "Puente USB para Móviles (ADB Bridge)",
         "menu_instructions": "Instrucciones de Uso",
         "menu_lang": "Cambiar Idioma / Change Language (Español)",
         "menu_exit": "Salir",
@@ -76,6 +77,8 @@ T = {
         "context_success": "Límite de contexto actualizado con éxito.",
         "quantization_label": "Cuantización",
         "context_label": "Límite de Contexto",
+        "settings_startup": "Encender al inicio del sistema",
+        "startup_success": "Inicio automático actualizado con éxito.",
 
 
 
@@ -148,6 +151,7 @@ T = {
 
         "menu_stop": "Shutdown / Release GPUs (Docker Compose Down)",
         "menu_gpu": "NVIDIA GPU Diagnostics (nvidia-smi)",
+        "menu_bridge": "USB Mobile Bridge (ADB Bridge)",
         "menu_instructions": "Instructions of Use",
         "menu_lang": "Change Language / Cambiar Idioma (English)",
         "menu_exit": "Exit",
@@ -181,6 +185,8 @@ T = {
         "context_success": "Context limit successfully updated.",
         "quantization_label": "Quantization",
         "context_label": "Context Limit",
+        "settings_startup": "Start on system boot",
+        "startup_success": "Auto-start setting updated successfully.",
 
 
 
@@ -333,6 +339,31 @@ def detect_system_language():
 
     return "en"  # Si no se puede detectar o no es español/inglés, por defecto inglés
 
+def update_startup_shortcut(enabled):
+    startup_folder = os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+    startup_file = os.path.join(startup_folder, "xyz_gpu_startup.bat")
+    
+    if enabled:
+        if os.name == 'nt':
+            try:
+                local_hostname = socket.gethostname().upper()
+                env_file = os.path.join(script_dir, f".env.{local_hostname}")
+                content = f"""@echo off
+cd /d "{script_dir}"
+python install_gpu.py --generate-env-only
+docker compose --env-file "{env_file}" up -d
+"""
+                with open(startup_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception:
+                pass
+    else:
+        if os.name == 'nt' and os.path.exists(startup_file):
+            try:
+                os.remove(startup_file)
+            except Exception:
+                pass
+
 
 def load_state():
     local_hostname = socket.gethostname().upper()
@@ -348,12 +379,14 @@ def load_state():
             "gpu_memory_utilization": "0.90",
             "quantization": "",
             "max_model_len": "2048",
+            "startup_enabled": True,
             "language": detect_system_language(),
             "registered_nodes": {
                 local_hostname: local_ip
             }
         }
         save_state(default_state)
+        update_startup_shortcut(True)
         return default_state
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -369,7 +402,11 @@ def load_state():
             state["quantization"] = ""
         if "max_model_len" not in state:
             state["max_model_len"] = "2048"
+        if "startup_enabled" not in state:
+            state["startup_enabled"] = True
+            
         save_state(state)
+        update_startup_shortcut(state.get("startup_enabled", True))
             
         if state["registered_nodes"].get(local_hostname) != local_ip:
             state["registered_nodes"][local_hostname] = local_ip
@@ -398,6 +435,35 @@ def save_state(state):
             json.dump(state, f, indent=4, ensure_ascii=False)
     except Exception as e:
         print(f"\n{C_PINK}[ERR] No se pudo guardar el archivo de estado central: {e}{C_RESET}")
+
+def trigger_auto_restart_if_active(state, local_hostname):
+    if is_cluster_running():
+        lang = state.get("language", "es")
+        master_hostname = state.get("master_hostname", "").upper()
+        master_ip = state.get("master_ip", "")
+        if local_hostname == master_hostname:
+            current_role = "head"
+        else:
+            current_role = "worker"
+        
+        env_file = f".env.{local_hostname}"
+        print(f"\n🔄 {C_CYAN}[AUTO-RESTART]{C_RESET} " + 
+              ("Aplicando cambios y reiniciando contenedores..." if lang == "es" else "Applying changes and restarting containers..."))
+        
+        generate_env_file(local_hostname, current_role, master_ip, state)
+        
+        try:
+            print(f"🛑 {T[lang]['cfg_stopping']}")
+            subprocess.run(["docker", "compose", "--env-file", env_file, "down"], check=True)
+            print(f"🚀 {T[lang]['cfg_launching']}")
+            subprocess.run(["docker", "compose", "--env-file", env_file, "up", "-d"], check=True)
+            print(f"\n{C_LIME}[SUCCESS] " + 
+                  ("Clúster reiniciado con éxito con la nueva configuración." if lang == "es" else "Cluster successfully restarted with the new configuration.") + 
+                  f"{C_RESET}")
+        except Exception as e:
+            print(f"\n{C_PINK}[ERROR] " + 
+                  (f"Error al reiniciar: {e}" if lang == "es" else f"Restart failed: {e}") + 
+                  f"{C_RESET}")
 
 def generate_env_file(hostname, role, master_ip, state):
     env_filename = f".env.{hostname}"
@@ -564,10 +630,14 @@ def settings_menu(local_hostname, local_ip):
         print(f"  {C_LIME}[5]{C_RESET} {T[lang]['settings_vram']}")
         print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_quant']}")
         print(f"  {C_LIME}[7]{C_RESET} {T[lang]['settings_context']}")
-        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_ping']}")
-        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_back']}")
-        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['menu_exit']}")
+        
+        startup_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("startup_enabled", True) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
+        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
+        
+        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_ping']}")
+        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['settings_back']}")
+        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         sub_opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
@@ -578,6 +648,7 @@ def settings_menu(local_hostname, local_ip):
             state["master_ip"] = local_ip
             save_state(state)
             print(f"{C_LIME}[OK] {T[lang]['migrate_success']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "2":
             print(f"\n📝 {C_BOLD}{T[lang]['model_prompt']}:{C_RESET}")
@@ -586,6 +657,7 @@ def settings_menu(local_hostname, local_ip):
                 state["model_name"] = new_model
                 save_state(state)
                 print(f"{C_LIME}[OK] {T[lang]['model_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "3":
             print(f"\n📝 {C_BOLD}{T[lang]['parallel_prompt']}:{C_RESET}")
@@ -603,6 +675,7 @@ def settings_menu(local_hostname, local_ip):
             if updated:
                 save_state(state)
                 print(f"{C_LIME}[OK] {T[lang]['parallel_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "4":
             print(f"\n📝 {C_BOLD}{T[lang]['manual_ip_prompt']}:{C_RESET}")
@@ -615,6 +688,7 @@ def settings_menu(local_hostname, local_ip):
                 state["registered_nodes"]["MANUAL-MASTER"] = entered_ip
                 save_state(state)
                 print(f"{C_LIME}[OK] {T[lang]['manual_ip_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "5":
             print(f"\n📝 {C_BOLD}{T[lang]['vram_prompt']}:{C_RESET}")
@@ -626,6 +700,7 @@ def settings_menu(local_hostname, local_ip):
                         state["gpu_memory_utilization"] = f"{val:.2f}"
                         save_state(state)
                         print(f"{C_LIME}[OK] {T[lang]['vram_success']}{C_RESET}")
+                        trigger_auto_restart_if_active(state, local_hostname)
                     else:
                         print(f"{C_PINK}[ERR] El valor debe estar entre 0.1 y 1.0 / Value must be between 0.1 and 1.0{C_RESET}")
                 except ValueError:
@@ -640,6 +715,7 @@ def settings_menu(local_hostname, local_ip):
                 state["quantization"] = entered_quant
             save_state(state)
             print(f"{C_LIME}[OK] {T[lang]['quant_success']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "7":
             print(f"\n📝 {C_BOLD}{T[lang]['context_prompt']}:{C_RESET}")
@@ -651,12 +727,21 @@ def settings_menu(local_hostname, local_ip):
                         state["max_model_len"] = str(val)
                         save_state(state)
                         print(f"{C_LIME}[OK] {T[lang]['context_success']}{C_RESET}")
+                        trigger_auto_restart_if_active(state, local_hostname)
                     else:
                         print(f"{C_PINK}[ERR] El valor debe ser un entero positivo / Value must be a positive integer{C_RESET}")
                 except ValueError:
                     print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "8":
+            current_val = state.get("startup_enabled", True)
+            new_val = not current_val
+            state["startup_enabled"] = new_val
+            save_state(state)
+            update_startup_shortcut(new_val)
+            print(f"\n{C_LIME}[OK] {T[lang]['startup_success']}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+        elif sub_opc == "9":
             print(f"\n🔄 {T[lang]['defaults_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
@@ -666,14 +751,17 @@ def settings_menu(local_hostname, local_ip):
             state["gpu_memory_utilization"] = "0.90"
             state["quantization"] = ""
             state["max_model_len"] = "2048"
+            state["startup_enabled"] = True
             save_state(state)
+            update_startup_shortcut(True)
             print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "9":
-            ping_menu(local_hostname, local_ip)
         elif sub_opc == "10":
-            break
+            ping_menu(local_hostname, local_ip)
         elif sub_opc == "11":
+            break
+        elif sub_opc == "12":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
@@ -755,6 +843,7 @@ def models_menu(local_hostname, local_ip):
                         state["model_name"] = selected
                         save_state(state)
                         print(f"\n{C_LIME}[OK] Modelo cambiado a: {selected}{C_RESET}")
+                        trigger_auto_restart_if_active(state, local_hostname)
                 except ValueError:
                     pass
             input(f"\n{T[lang]['press_enter']}")
@@ -766,6 +855,7 @@ def models_menu(local_hostname, local_ip):
                 state["model_name"] = new_model
                 save_state(state)
                 print(f"\n{C_LIME}[OK] {T[lang]['model_success']}{C_RESET}")
+                trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
             
         elif opc == "3":
@@ -866,14 +956,15 @@ def main():
             
         print(f" {C_LIME}[3]{C_RESET} {T[lang]['menu_models']}")
         print(f" {C_LIME}[4]{C_RESET} {T[lang]['menu_gpu']}")
-        print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_instructions']}")
+        print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_bridge']}")
+        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_instructions']}")
         
-        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_update']}")
+        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_update']}")
         
         # Opción de Idioma Dinámica
         lang_str = "English" if lang == "es" else "Español"
-        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
-        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_exit']}")
+        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        print(f" {C_LIME}[9]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
         
@@ -902,106 +993,70 @@ def main():
                     continue
                     
                 print(f"🚀  {C_BOLD}{C_PURPLE}[DOCKER]{C_RESET} {T[lang]['cfg_launching']}")
-                try:
-                    subprocess.run(["docker", "compose", "--env-file", env_file, "up", "-d"], check=True)
-                    print(f"\n{C_LIME}[SUCCESS] {T[lang]['cfg_success_start']}{C_RESET}")
-                    if current_role == "head":
-                        print(f"  ├── API Endpoint:     {C_CYAN}http://localhost:8000/v1{C_RESET}")
-                        print(f"  └── Ray Dashboard:    {C_PURPLE}http://localhost:8265{C_RESET}")
-                except Exception as e:
-                    print(f"\n{C_PINK}[ERROR] {T[lang]['cfg_err_start']}: {e}{C_RESET}")
-            input(f"\n{T[lang]['press_enter']}")
-            
-        elif opc == "3":
-            models_menu(local_hostname, local_ip)
-            
-        elif opc == "4":
-            print(f"\n🔍 Iniciando monitor dinámico de GPU..." if lang == "es" else f"\n🔍 Starting dynamic GPU monitor...")
-            time.sleep(0.5)
-            while True:
-                state = load_state()
-                print_full_header(state, local_hostname, local_ip, role_label)
-                print(f" 🔍 {C_BOLD}{C_CYAN}[MONITOR]{C_RESET} {T[lang]['monitor_title']}")
-                print(f" {T[lang]['monitor_help']}")
-                print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
-                
-                try:
-                    subprocess.run(["nvidia-smi"])
-                except Exception:
-                    print(f"\n{C_PINK}[ERROR] {T[lang]['monitor_err']}{C_RESET}")
-                    input(f"\n{T[lang]['press_enter']}")
-                    break
-                    
-                print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
-                
-                exited = False
-                for _ in range(20):
-                    if check_exit_key():
-                        exited = True
-                        break
-                    time.sleep(0.1)
-                
-                if exited:
-                    break
-            
         elif opc == "5":
+            print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
+            try:
+                subprocess.run([sys.executable, "xyz_bridge.py"])
+            except Exception as e:
+                print(f"{C_PINK}Error launching xyz_bridge.py: {e}{C_RESET}")
+                input(f"\n{T[lang]['press_enter']}")
+                
+        elif opc == "6":
             if lang == "es":
                 print(f"\n📝 {C_BOLD}INSTRUCCIONES DE USO DE XYZ-GPU:{C_RESET}")
                 print("  1. Requisitos: Asegúrate de tener Docker Desktop con integración de WSL2 activo.")
                 print("  2. Red Espejo: Verifica que la red 'mirrored' esté configurada en tu .wslconfig.")
                 print("  3. Encendido del Clúster:")
-                print(f"     - En el PC MASTER ({master_hostname}): Lanza la opción [2]. Levanta Ray y vLLM.")
+                print(f"     - En el PC MASTER ({master_hostname}): Lanza la opción [2]. Levanta Ray, vLLM y LiteLLM.")
                 print("     - En el PC WORKER: Lanza la opción [2]. Se conectará automáticamente al Master.")
-                print("  4. Diagnóstico de GPU en Vivo:")
+                print("  4. Capa Unificada LiteLLM:")
+                print("     - Al iniciar el Master, se levanta LiteLLM en el puerto 4000 de forma unificada.")
+                print("       Todas tus peticiones de inferencia deben ir a http://localhost:4000/v1.")
+                print("       LiteLLM se encargará del balanceo de carga y fallback hacia los móviles USB.")
+                print("  5. Puente USB (Móviles):")
+                print("     - Si conectas móviles al portátil, inicia la opción [5] (Puente USB) en el portátil y escoge Modo Local.")
+                print("     - En cualquier otro nodo (ej: Torre), inicia la opción [5] (Puente USB) y escoge Modo Remoto.")
+                print("       Esto conectará tu nodo al servidor ADB del portátil y expondrá los móviles localmente.")
+                print("       LiteLLM redirigirá automáticamente el tráfico sobrante o de failover hacia ellos.")
+                print("  6. Diagnóstico de GPU en Vivo:")
                 print("     - Lanza la opción [4] para ver el estado de la GPU en tiempo real de forma estática y")
                 print("       dinámica con refresco de 2 segundos. Presiona 'q' o Enter para regresar al menú.")
-                print("  5. Parámetros de Paralelismo (Ajustes):")
-                print(f"     - {C_BOLD}Pipeline Parallelism (PP):{C_RESET} Divide las capas verticales del modelo en bloques.")
-                print("       Por ejemplo, capas 1-16 en PC 1 y 17-32 en PC 2. Se comunican por red local al")
-                print("       saltar de bloque. Es ideal para redes domésticas (debes ponerlo en 2).")
-                print(f"     - {C_BOLD}Tensor Parallelism (TP):{C_RESET} Divide cada capa matemática individual (tensores)")
-                print("       de forma horizontal. Requiere una velocidad de transferencia ultra rápida (ej. NVLink).")
-                print("       Al estar en ordenadores separados por red local común, DEBE mantenerse en 1, ya que")
-                print("       de lo contrario el clúster se congelará por la latencia del cable de red local.")
-                print("  6. Migrar Master: Para alternar el PC principal, ve a ese equipo, selecciona")
+                print("  7. Migrar Master: Para alternar el PC principal, ve a ese equipo, selecciona")
                 print("     la opción [1] (Ajustes) -> opción [1] (Forzar Master), y luego inicialo con la opción [2].")
                 print("     El otro PC se adaptará a Worker automáticamente en su siguiente inicio.")
-                print("  7. Restaurar Configuración: Si configuras parámetros erróneos, selecciona la opción [1]")
+                print("  8. Restaurar Configuración: Si configuras parámetros erróneos, selecciona la opción [1]")
                 print("     (Ajustes) -> opción [5] (Restaurar Valores por Defecto) para volver al modelo y")
                 print("     paralelismo originales (Qwen, PP=2, TP=1) y re-establecer el Master al PC local.")
-                print("  8. Apagado: Selecciona la opción [2] (cuando esté ON) en ambos PCs para liberar la VRAM.")
-                print("  9. Nuevo Portátil / Segundo Equipo: Copia la carpeta a C:\\xyz-gpu, instala los requisitos previos (WSL2/Docker/Red Espejo),")
-                print("     abre Ajustes [1] -> opción [4] y escribe la IP del Master. Luego levanta el clúster con la opción [2].")
+                print("  9. Apagado: Selecciona la opción [2] (cuando esté ON) en ambos PCs para liberar la VRAM.")
             else:
                 print(f"\n📝 {C_BOLD}XYZ-GPU USAGE INSTRUCTIONS:{C_RESET}")
                 print("  1. Requirements: Make sure Docker Desktop with WSL2 integration is active.")
                 print("  2. Mirrored Network: Verify that the network mode 'mirrored' is set in .wslconfig.")
                 print("  3. Cluster Booting:")
-                print(f"     - On the MASTER PC ({master_hostname}): Choose option [2]. Launches Ray and vLLM.")
+                print(f"     - On the MASTER PC ({master_hostname}): Choose option [2]. Launches Ray, vLLM, and LiteLLM.")
                 print("     - On the WORKER PC: Choose option [2]. Connects automatically to the Master node.")
-                print("  4. Live GPU Diagnostics:")
+                print("  4. Unified LiteLLM Layer:")
+                print("     - When starting the Master, LiteLLM launches on port 4000 as a unified gateway.")
+                print("       All inference requests should be sent to http://localhost:4000/v1.")
+                print("       LiteLLM will manage load-balancing and fallback to USB mobile nodes.")
+                print("  5. USB Bridge (Mobile):")
+                print("     - If you connect phones to the laptop, run option [5] (USB Bridge) on it and select Local Mode.")
+                print("     - On any other node (e.g. Torre), run option [5] (USB Bridge) and select Remote Mode.")
+                print("       This connects your node to the laptop's ADB server, exposing phones locally.")
+                print("       LiteLLM will automatically route failover/spillover traffic to them.")
+                print("  6. Live GPU Diagnostics:")
                 print("     - Choose option [4] to view real-time GPU statistics (nvidia-smi), refreshing every 2s.")
                 print("       Press 'q' or Enter to return to the main menu.")
-                print("  5. Parallelism Parameters (Settings):")
-                print(f"     - {C_BOLD}Pipeline Parallelism (PP):{C_RESET} Splits the model's layers vertically into blocks.")
-                print("       Por example, layers 1-16 on PC 1 and 17-32 on PC 2. They communicate over LAN when")
-                print("       transitioning layers. Ideal for local setups (set to 2).")
-                print(f"     - {C_BOLD}Tensor Parallelism (TP):{C_RESET} Splits individual matrix operations (tensors)")
-                print("       horizontally. Requires ultra-fast bandwidth (e.g., NVLink). Over common LAN, IT MUST")
-                print("       remain set to 1, otherwise the cluster will freeze due to network latency.")
-                print("  6. Migrate Master: To switch the main PC, go to that machine, select")
+                print("  7. Migrate Master: To switch the main PC, go to that machine, select")
                 print("     Option [1] (Settings) -> Option [1] (Force Master), and then start it using Option [2].")
                 print("     The other PC will adapt as a Worker node on its next boot.")
-                print("  7. Restore Settings: If you write incorrect parameters, select Option [1] (Settings)")
+                print("  8. Restore Settings: If you write incorrect parameters, select Option [1] (Settings)")
                 print("     -> Option [5] (Restore Factory Defaults) to reset to default values (Qwen, PP=2, TP=1)")
                 print("     and set the Master back to the local PC.")
-                print("  8. Shutdown: Choose Option [2] (when ON) on both PCs to release GPU VRAM.")
-                print("  9. New Laptop / Second Device: Copy folder to C:\\xyz-gpu, install prerequisites (WSL2/Docker/Mirrored),")
-                print("     go to Settings [1] -> Option [4] and enter the Master IP. Then launch the cluster via Option [2].")
+                print("  9. Shutdown: Choose Option [2] (when ON) on both PCs to release GPU VRAM.")
             input(f"\n{T[lang]['press_enter_menu']}")
-
             
-        elif opc == "6":
+        elif opc == "7":
             print(f"\n🔄 {T[lang]['update_run']}")
             try:
                 res = subprocess.run(["git", "pull"], capture_output=True, text=True)
@@ -1016,18 +1071,29 @@ def main():
                 print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
             
-        elif opc == "7":
+        elif opc == "8":
             # Alternar idioma y guardarlo en el archivo de estado compartido
             state["language"] = "en" if lang == "es" else "es"
             save_state(state)
             print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
             time.sleep(0.5)
             
-        elif opc == "8":
+        elif opc == "9":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 
 
-
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == "--generate-env-only":
+        state = load_state()
+        local_hostname = socket.gethostname().upper()
+        local_ip = get_local_ip()
+        master_hostname = state.get("master_hostname", "").upper()
+        master_ip = state.get("master_ip", "")
+        if local_hostname == master_hostname:
+            role = "head"
+        else:
+            role = "worker"
+        generate_env_file(local_hostname, role, master_ip, state)
+        sys.exit(0)
     main()

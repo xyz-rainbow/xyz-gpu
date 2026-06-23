@@ -1,0 +1,31 @@
+model_list:
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/vllm
+      api_base: http://localhost:8000/v1
+      api_key: "any-key"
+      rpm: 100
+      tpm: 100000
+
+  # Lógica de redundancia (Fallback) hacia los nodos secundarios del clúster de móviles USB (puertos ADB redireccionados)
+  # Estos se activan automáticamente si el servidor principal de GPU vLLM falla o está saturado
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-1
+      api_base: http://localhost:50051/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+  - model_name: hybrid-model
+    litellm_params:
+      model: openai/mobile-node-2
+      api_base: http://localhost:50052/v1
+      api_key: "any-key"
+      rpm: 15
+    fallback_value: true
+
+router_settings:
+  routing_strategy: failover
+  allowed_fails: 2
+  cooldown_time: 10

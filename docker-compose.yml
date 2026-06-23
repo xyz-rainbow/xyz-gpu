@@ -39,3 +39,21 @@ services:
         echo '📡 Conectando como Ray WORKER Node a ${MASTER_IP}:6379...';
         ray start --address=\"${MASTER_IP}:6379\" --block;
       fi"
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-gateway
+    network_mode: "host"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    environment:
+      - NODE_ROLE=${NODE_ROLE}
+    entrypoint: >
+      sh -c "if [ \"$NODE_ROLE\" = \"head\" ]; then
+        echo '🚀 Iniciando capa unificada LiteLLM en puerto 4000...';
+        exec litellm --config /app/config.yaml --port 4000;
+      else
+        echo '📡 LiteLLM inactivo en nodo Worker (solo corre en Head).';
+        while true; do sleep 3600; done;
+      fi"
+
