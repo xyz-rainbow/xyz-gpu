@@ -1339,6 +1339,34 @@ def main():
                 except Exception as e:
                     print(f"\n{C_PINK}[ERROR] {T[lang]['cfg_err_start']}: {e}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
+        elif opc == "3":
+            models_menu(local_hostname, local_ip)
+        elif opc == "4":
+            # Diagnóstico GPU
+            if os.name == 'nt':
+                # Ejecutar comando nvidia-smi en bucle de refresco o diagnóstico estático
+                try:
+                    import keyboard # type: ignore
+                except ImportError:
+                    pass
+                print(f"\n⚡ {T[lang]['monitor_title']}")
+                print(f"   {T[lang]['monitor_help']}\n")
+                try:
+                    # Hacemos una llamada estática inicial
+                    res = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+                    if res.returncode == 0:
+                        print(res.stdout)
+                    else:
+                        print(f"{C_PINK}{T[lang]['monitor_err']}{C_RESET}")
+                except Exception as e:
+                    print(f"{C_PINK}{T[lang]['monitor_err']}: {e}{C_RESET}")
+                input(f"\n{T[lang]['press_enter_menu']}")
+            else:
+                try:
+                    subprocess.run(["nvidia-smi"])
+                except Exception as e:
+                    print(f"{C_PINK}{T[lang]['monitor_err']}: {e}{C_RESET}")
+                input(f"\n{T[lang]['press_enter_menu']}")
         elif opc == "5":
             print(f"\n🔗 Iniciando Puente USB Móvil (ADB Bridge)..." if lang == "es" else f"\n🔗 Starting Mobile USB Bridge (ADB Bridge)...")
             try:
