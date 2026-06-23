@@ -7,6 +7,13 @@ import time
 import locale
 import threading
 
+# Importar el coordinador de clúster (sin romper si no existe)
+try:
+    import cluster_daemon as _cd
+    _DAEMON_AVAILABLE = True
+except ImportError:
+    _DAEMON_AVAILABLE = False
+
 # Asegurar que el directorio de trabajo es el del propio script para soportar cualquier ruta
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir:
@@ -573,6 +580,14 @@ def save_state(state):
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=4, ensure_ascii=False)
         generate_litellm_config(state)
+        # Notificar al master del clúster para que recargue LiteLLM
+        if _DAEMON_AVAILABLE:
+            master_ip = state.get("master_ip", "127.0.0.1")
+            threading.Thread(
+                target=_cd.notify_master_settings_changed,
+                args=(master_ip,),
+                daemon=True
+            ).start()
     except Exception as e:
         print(f"\n{C_PINK}[ERR] No se pudo guardar el archivo de estado central: {e}{C_RESET}")
 
@@ -725,6 +740,26 @@ def print_full_header(state, local_hostname, local_ip, role_label):
         vram_display = f"{vram_percent}% ({vram_val})"
     print(f"  ├── {T[lang]['vram_allocation']}:       {vram_display}")
     print(f"  └── {C_BOLD}{T[lang]['cluster_status']}:   [ {status_label}{C_BOLD} ]{C_RESET}")
+
+    # ── Nodos activos en tiempo real (desde el daemon del master) ──
+    if _DAEMON_AVAILABLE and running:
+        try:
+            active = _cd.get_active_nodes(master_ip)
+            if active:
+                daemon_up = _cd.is_master_daemon_running(master_ip)
+                daemon_lbl = f"{C_LIME}● LIVE{C_RESET}" if daemon_up else f"{C_ORANGE}○ offline{C_RESET}"
+                print(f"  {C_BOLD}Cluster nodes [{daemon_lbl}{C_BOLD}]:{C_RESET}")
+                for h, info in active.items():
+                    n_ip   = info.get('ip', '?')
+                    n_gpus = info.get('gpus', 0)
+                    is_me  = h == local_hostname
+                    is_mas = h == master_hostname
+                    tag    = f"{C_RED}[M]{C_RESET}" if is_mas else f"{C_CYAN}[W]{C_RESET}"
+                    me_tag = f" {C_LIME}← you{C_RESET}" if is_me else ""
+                    print(f"    {tag} {C_BOLD}{h}{C_RESET} {n_ip}  {n_gpus} GPU(s){me_tag}")
+        except Exception:
+            pass
+
     print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
 
@@ -1507,6 +1542,16 @@ def main():
                 env_file = f".env.{local_hostname}"
                 if not os.path.exists(env_file):
                     generate_env_file(local_hostname, current_role, master_ip, state)
+                # Notificar al master ANTES de apagar
+                if _DAEMON_AVAILABLE:
+                    if current_role == "worker":
+                        print(f"  📡 Notificando al master ({master_ip})...")
+                        try:
+                            _cd.unregister_as_worker(master_ip)
+                        except Exception:
+                            pass
+                    else:
+                        _cd.stop_master_daemon()
                 try:
                     subprocess.run(["docker", "compose", "--env-file", env_file, "down"], check=True)
                     print(f"\n{C_LIME}[SUCCESS] {T[lang]['cfg_success_stop']}{C_RESET}")
@@ -1524,13 +1569,40 @@ def main():
                 try:
                     subprocess.run(["docker", "compose", "--env-file", env_file, "up", "-d"], check=True)
                     print(f"\n{C_LIME}[SUCCESS] {T[lang]['cfg_success_start']}{C_RESET}")
-                    if current_role == "head":
-                        print(f"  ├── API Endpoint:     {C_CYAN}http://localhost:8000/v1{C_RESET}")
-                        print(f"  └── Ray Dashboard:    {C_PURPLE}http://localhost:8265{C_RESET}")
+                    
+                    # Arrancar el daemon del clúster según el rol
+                    if _DAEMON_AVAILABLE:
+                        if current_role == "head":
+                            print(f"\n🌐 {C_CYAN}[CLUSTER]{C_RESET} Iniciando coordinador del clúster...")
+                            threading.Thread(
+                                target=_cd.start_master_daemon,
+                                args=(local_ip,),
+                                daemon=True
+                            ).start()
+                            time.sleep(1)  # dar tiempo al servidor a arrancar
+                            print(f"  ├── API Endpoint:     {C_CYAN}http://localhost:8000/v1{C_RESET}")
+                            print(f"  ├── LiteLLM Gateway:  {C_LIME}http://localhost:4000/v1{C_RESET}")
+                            print(f"  ├── Ray Dashboard:    {C_PURPLE}http://localhost:8265{C_RESET}")
+                            print(f"  └── Coordinator:      {C_ORANGE}http://{local_ip}:5555/nodes{C_RESET}")
+                        else:
+                            print(f"\n📡 {C_CYAN}[CLUSTER]{C_RESET} Registrando con master {master_ip}...")
+                            threading.Thread(
+                                target=_cd.register_as_worker,
+                                args=(master_ip,),
+                                daemon=True
+                            ).start()
+                            print(f"  ├── Ray Worker →      {C_CYAN}{master_ip}:6379{C_RESET}")
+                            print(f"  └── Heartbeat cada    {C_LIME}15s{C_RESET}")
+                    else:
+                        if current_role == "head":
+                            print(f"  ├── API Endpoint:     {C_CYAN}http://localhost:8000/v1{C_RESET}")
+                            print(f"  └── Ray Dashboard:    {C_PURPLE}http://localhost:8265{C_RESET}")
+                    
                     spawn_detached_notifications(lang)
                 except Exception as e:
                     print(f"\n{C_PINK}[ERROR] {T[lang]['cfg_err_start']}: {e}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
+
         elif opc == "3":
             models_menu(local_hostname, local_ip)
         elif opc == "4":
