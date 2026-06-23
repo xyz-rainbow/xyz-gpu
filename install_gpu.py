@@ -663,26 +663,46 @@ def print_full_header(state, local_hostname, local_ip, role_label):
     lang = state.get("language", "es")
     
     # Determinar el estado ON/OFF del clúster
-    if is_cluster_running():
+    running = is_cluster_running()
+    if running:
         status_label = f"{C_BOLD}{C_LIME}ON{C_RESET}"
+        model_display = f"{C_LIME}[{state.get('model_name')}]{C_RESET}"
     else:
         status_label = f"{C_BOLD}{C_RED}OFF{C_RESET}"
+        model_display = f"\033[90m[{'Ninguno (No iniciado en este equipo)' if lang == 'es' else 'None (Not running on this node)'}]\033[0m"
         
     print(f" {C_BOLD}{T[lang]['device']}:{C_RESET} {C_ORANGE}{local_hostname}{C_RESET} ({local_ip}) -> {role_label}")
     print(f" {C_BOLD}{T[lang]['config']}:{C_RESET}")
     print(f"  ├── {C_BOLD}{T[lang]['assigned_master']}:{C_RESET} {C_RED}[{master_hostname}]{C_RESET} ({master_ip})")
-    print(f"  ├── {T[lang]['active_model']}:        {C_LIME}[{state.get('model_name')}]{C_RESET}")
+    print(f"  ├── {T[lang]['active_model']}:        {model_display}")
     # Mostrar cuantización del modelo
     quant_display = state.get('quantization', '')
     if not quant_display:
         quant_display = "Ninguna (FP16)" if lang == "es" else "None (FP16)"
-    print(f"  ├── {T[lang]['quantization_label']}:          {C_CYAN}{quant_display}{C_RESET}")
+    if not running:
+        quant_display = f"\033[90m{quant_display}\033[0m"
+    print(f"  ├── {T[lang]['quantization_label']}:          {C_CYAN}{quant_display}{C_RESET}" if running else f"  ├── {T[lang]['quantization_label']}:          {quant_display}")
     # Mostrar límite de contexto
-    print(f"  ├── {T[lang]['context_label']}:    {C_PURPLE}{state.get('max_model_len', '2048')} tokens{C_RESET}")
-    print(f"  ├── {T[lang]['parallelism']}:          Pipeline: {state.get('pipeline_parallel_size')} | Tensor: {state.get('tensor_parallel_size')}")
+    context_val = state.get('max_model_len', '2048')
+    if not running:
+        context_display = f"\033[90m{context_val} tokens\033[0m"
+    else:
+        context_display = f"{C_PURPLE}{context_val} tokens{C_RESET}"
+    print(f"  ├── {T[lang]['context_label']}:    {context_display}")
+    
+    if not running:
+        parallel_display = f"\033[90mPipeline: {state.get('pipeline_parallel_size')} | Tensor: {state.get('tensor_parallel_size')}\033[0m"
+    else:
+        parallel_display = f"Pipeline: {state.get('pipeline_parallel_size')} | Tensor: {state.get('tensor_parallel_size')}"
+    print(f"  ├── {T[lang]['parallelism']}:          {parallel_display}")
     # Mostrar límite de asignación de VRAM
     vram_percent = int(float(state.get('gpu_memory_utilization', '0.90')) * 100)
-    print(f"  ├── {T[lang]['vram_allocation']}:       {vram_percent}% ({state.get('gpu_memory_utilization', '0.90')})")
+    vram_val = state.get('gpu_memory_utilization', '0.90')
+    if not running:
+        vram_display = f"\033[90m{vram_percent}% ({vram_val})\033[0m"
+    else:
+        vram_display = f"{vram_percent}% ({vram_val})"
+    print(f"  ├── {T[lang]['vram_allocation']}:       {vram_display}")
     print(f"  └── {C_BOLD}{T[lang]['cluster_status']}:   [ {status_label}{C_BOLD} ]{C_RESET}")
     print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
 
