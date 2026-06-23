@@ -18,12 +18,14 @@ services:
       - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
     command: >
       bash -c "if [ \"$NODE_ROLE\" = \"head\" ]; then
-        echo '🚀 Iniciando Ray HEAD Node...';
-        ray start --head --port=6379 --block &
+        echo '📦 Instalando Ray Dashboard (ray[default])...';
+        pip install -q 'ray[default]';
+        echo '🚀 Iniciando Ray HEAD Node con Dashboard en :8265...';
+        ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --include-dashboard=true --block &
         sleep 12;
         echo '⚡ Levantando servidor vLLM OpenAI API...';
-        QUANT_FLAG="";
-        if [ -n "$$VLLM_QUANTIZATION" ]; then QUANT_FLAG="--quantization $$VLLM_QUANTIZATION"; fi;
+        QUANT_FLAG=\"\";
+        if [ -n \"$$VLLM_QUANTIZATION\" ]; then QUANT_FLAG=\"--quantization $$VLLM_QUANTIZATION\"; fi;
         python3 -m vllm.entrypoints.openai.api_server \
           --model $${MODEL_NAME} \
           --pipeline-parallel-size $${PIPELINE_SIZE} \
@@ -33,8 +35,6 @@ services:
           $$QUANT_FLAG \
           --host 0.0.0.0 \
           --port 8000;
-
-
       else
         echo '📡 Conectando como Ray WORKER Node a ${MASTER_IP}:6379...';
         ray start --address=\"${MASTER_IP}:6379\" --block;
@@ -56,4 +56,3 @@ services:
         echo '📡 LiteLLM inactivo en nodo Worker (solo corre en Head).';
         while true; do sleep 3600; done;
       fi"
-
