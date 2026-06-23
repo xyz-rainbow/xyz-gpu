@@ -25,20 +25,7 @@ DEBOUNCE_DELAY    = 2.5   # segundos de espera antes de recargar LiteLLM
 STATE_FILE        = "cluster_state.json"
 
 
-# ─── Logger del daemon (no contamina el TUI) ─────────────────────────────────
-_LOG_FILE = os.path.join(_script_dir, "cluster_daemon.log")
 
-def _log(msg: str):
-    """Escribe en el log del daemon en vez de stdout."""
-    try:
-        ts = time.strftime("%H:%M:%S")
-        with open(_LOG_FILE, "a", encoding="utf-8") as f:
-            # Limpiar códigos ANSI para el archivo de log
-            import re as _re
-            clean = _re.sub(r'\033\[[0-9;]*m', '', msg)
-            f.write(f"[{ts}] {clean}\n")
-    except Exception:
-        pass
 # ─── Estado en proceso ────────────────────────────────────────────────────────
 _active_nodes: dict = {}
 _lock          = threading.Lock()
@@ -48,6 +35,21 @@ _daemon_ready  = False   # True solo cuando el servidor HTTP está corriendo
 # Debounce: timer que se cancela/reinicia en cada evento de cluster
 _reload_timer: threading.Timer | None = None
 _reload_lock  = threading.Lock()
+
+# ─── Logger del daemon (no contamina el TUI) ─────────────────────────────────
+_LOG_FILE = os.path.join(_script_dir, "cluster_daemon.log")
+
+def _log(msg: str):
+    """Escribe en el log del daemon en vez de stdout."""
+    try:
+        ts = time.strftime("%H:%M:%S")
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            import re as _re
+            clean = _re.sub(r'\033\[[0-9;]*m', '', msg)
+            f.write(f"[{ts}] {clean}\n")
+    except Exception:
+        pass
+
 
 # ─── ANSI ────────────────────────────────────────────────────────────────────
 C_LIME   = "\033[38;5;118m"
