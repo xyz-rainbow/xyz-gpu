@@ -22,13 +22,18 @@ services:
         ray start --head --port=6379 --block &
         sleep 12;
         echo '⚡ Levantando servidor vLLM OpenAI API...';
+        QUANT_FLAG="";
+        if [ -n "$$VLLM_QUANTIZATION" ]; then QUANT_FLAG="--quantization $$VLLM_QUANTIZATION"; fi;
         python3 -m vllm.entrypoints.openai.api_server \
-          --model ${MODEL_NAME} \
-          --pipeline-parallel-size ${PIPELINE_SIZE} \
-          --tensor-parallel-size ${TENSOR_SIZE} \
-          --gpu-memory-utilization ${GPU_MEM_LIMIT:-0.90} \
+          --model $${MODEL_NAME} \
+          --pipeline-parallel-size $${PIPELINE_SIZE} \
+          --tensor-parallel-size $${TENSOR_SIZE} \
+          --gpu-memory-utilization $${GPU_MEM_LIMIT:-0.90} \
+          --max-model-len $${MAX_MODEL_LEN:-2048} \
+          $$QUANT_FLAG \
           --host 0.0.0.0 \
           --port 8000;
+
 
       else
         echo '📡 Conectando como Ray WORKER Node a ${MASTER_IP}:6379...';

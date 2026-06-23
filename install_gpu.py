@@ -56,6 +56,8 @@ T = {
         "settings_parallel": "Modificar Tamaños de Paralelismo (Pipeline / Tensor)",
         "settings_manual_ip": "Configurar IP del Master Manualmente (Sin ruta compartida)",
         "settings_vram": "Modificar Límite de Asignación de VRAM (GPU Utilization)",
+        "settings_quant": "Modificar Cuantización del Modelo",
+        "settings_context": "Modificar Límite de Contexto (max-model-len)",
         "settings_defaults": "Restaurar Valores por Defecto (Valores de Fábrica)",
         "settings_ping": "Menú de Ping Diagnóstico (Nodos del Clúster)",
         "settings_back": "Volver al Menú Principal",
@@ -66,6 +68,15 @@ T = {
         "vram_prompt": "Modificar Límite de VRAM (Valor decimal entre 0.1 y 1.0)",
         "vram_input": "Porcentaje de VRAM para vLLM",
         "vram_success": "Límite de asignación de VRAM actualizado con éxito.",
+        "quant_prompt": "Modificar Método de Cuantización (opciones: None, awq, gptq, squeezellm)",
+        "quant_input": "Método de cuantización (deja vacío para precisión nativa FP16)",
+        "quant_success": "Cuantización del modelo actualizada con éxito.",
+        "context_prompt": "Modificar Límite de Contexto del Modelo (Tokens máximos)",
+        "context_input": "Tokens de contexto",
+        "context_success": "Límite de contexto actualizado con éxito.",
+        "quantization_label": "Cuantización",
+        "context_label": "Límite de Contexto",
+
 
 
         
@@ -150,6 +161,8 @@ T = {
         "settings_parallel": "Modify Parallelism Sizes (Pipeline / Tensor)",
         "settings_manual_ip": "Configure Master IP Manually (No shared path)",
         "settings_vram": "Modify VRAM Allocation Limit (GPU Utilization)",
+        "settings_quant": "Modify Model Quantization",
+        "settings_context": "Modify Context Limit (max-model-len)",
         "settings_defaults": "Restore Factory Defaults",
         "settings_ping": "Diagnostic Ping Menu (Cluster Nodes)",
         "settings_back": "Back to Main Menu",
@@ -160,6 +173,15 @@ T = {
         "vram_prompt": "Modify VRAM Limit (Decimal value between 0.1 and 1.0)",
         "vram_input": "VRAM percentage for vLLM",
         "vram_success": "VRAM allocation limit updated successfully.",
+        "quant_prompt": "Modify Quantization Method (options: None, awq, gptq, squeezellm)",
+        "quant_input": "Quantization method (leave empty for native FP16)",
+        "quant_success": "Model quantization successfully updated.",
+        "context_prompt": "Modify Model Context Limit (Max Tokens)",
+        "context_input": "Context tokens",
+        "context_success": "Context limit successfully updated.",
+        "quantization_label": "Quantization",
+        "context_label": "Context Limit",
+
 
 
         
@@ -324,6 +346,8 @@ def load_state():
             "pipeline_parallel_size": "2",
             "tensor_parallel_size": "1",
             "gpu_memory_utilization": "0.90",
+            "quantization": "",
+            "max_model_len": "2048",
             "language": detect_system_language(),
             "registered_nodes": {
                 local_hostname: local_ip
@@ -341,7 +365,11 @@ def load_state():
             state["language"] = detect_system_language()
         if "gpu_memory_utilization" not in state:
             state["gpu_memory_utilization"] = "0.90"
-            save_state(state)
+        if "quantization" not in state:
+            state["quantization"] = ""
+        if "max_model_len" not in state:
+            state["max_model_len"] = "2048"
+        save_state(state)
             
         if state["registered_nodes"].get(local_hostname) != local_ip:
             state["registered_nodes"][local_hostname] = local_ip
@@ -356,6 +384,8 @@ def load_state():
             "pipeline_parallel_size": "2",
             "tensor_parallel_size": "1",
             "gpu_memory_utilization": "0.90",
+            "quantization": "",
+            "max_model_len": "2048",
             "language": detect_system_language(),
             "registered_nodes": {
                 local_hostname: local_ip
@@ -379,10 +409,13 @@ def generate_env_file(hostname, role, master_ip, state):
             f.write(f"PIPELINE_SIZE={state.get('pipeline_parallel_size', '2')}\n")
             f.write(f"TENSOR_SIZE={state.get('tensor_parallel_size', '1')}\n")
             f.write(f"GPU_MEM_LIMIT={state.get('gpu_memory_utilization', '0.90')}\n")
+            f.write(f"VLLM_QUANTIZATION={state.get('quantization', '')}\n")
+            f.write(f"MAX_MODEL_LEN={state.get('max_model_len', '2048')}\n")
         return env_filename
     except Exception as e:
         print(f"\n{C_PINK}[ERR] Error al generar el archivo de entorno {env_filename}: {e}{C_RESET}")
         return None
+
 
 
 def print_banner():
@@ -411,12 +444,20 @@ def print_full_header(state, local_hostname, local_ip, role_label):
     print(f" {C_BOLD}{T[lang]['config']}:{C_RESET}")
     print(f"  ├── {C_BOLD}{T[lang]['assigned_master']}:{C_RESET} {C_RED}[{master_hostname}]{C_RESET} ({master_ip})")
     print(f"  ├── {T[lang]['active_model']}:        {C_LIME}[{state.get('model_name')}]{C_RESET}")
+    # Mostrar cuantización del modelo
+    quant_display = state.get('quantization', '')
+    if not quant_display:
+        quant_display = "Ninguna (FP16)" if lang == "es" else "None (FP16)"
+    print(f"  ├── {T[lang]['quantization_label']}:          {C_CYAN}{quant_display}{C_RESET}")
+    # Mostrar límite de contexto
+    print(f"  ├── {T[lang]['context_label']}:    {C_PURPLE}{state.get('max_model_len', '2048')} tokens{C_RESET}")
     print(f"  ├── {T[lang]['parallelism']}:          Pipeline: {state.get('pipeline_parallel_size')} | Tensor: {state.get('tensor_parallel_size')}")
     # Mostrar límite de asignación de VRAM
     vram_percent = int(float(state.get('gpu_memory_utilization', '0.90')) * 100)
     print(f"  ├── {T[lang]['vram_allocation']}:       {vram_percent}% ({state.get('gpu_memory_utilization', '0.90')})")
     print(f"  └── {C_BOLD}{T[lang]['cluster_status']}:   [ {status_label}{C_BOLD} ]{C_RESET}")
     print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+
 
 
 def ping_menu(local_hostname, local_ip):
@@ -521,10 +562,12 @@ def settings_menu(local_hostname, local_ip):
         print(f"  {C_LIME}[3]{C_RESET} {T[lang]['settings_parallel']}")
         print(f"  {C_LIME}[4]{C_RESET} {T[lang]['settings_manual_ip']}")
         print(f"  {C_LIME}[5]{C_RESET} {T[lang]['settings_vram']}")
-        print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[7]{C_RESET} {T[lang]['settings_ping']}")
-        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_back']}")
-        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_quant']}")
+        print(f"  {C_LIME}[7]{C_RESET} {T[lang]['settings_context']}")
+        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_ping']}")
+        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_back']}")
+        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         sub_opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
@@ -589,6 +632,31 @@ def settings_menu(local_hostname, local_ip):
                     print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "6":
+            print(f"\n📝 {C_BOLD}{T[lang]['quant_prompt']}:{C_RESET}")
+            entered_quant = input(f" {T[lang]['quant_input']} [{state.get('quantization', '')}]: ").strip()
+            if entered_quant.lower() in ["none", ""]:
+                state["quantization"] = ""
+            else:
+                state["quantization"] = entered_quant
+            save_state(state)
+            print(f"{C_LIME}[OK] {T[lang]['quant_success']}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+        elif sub_opc == "7":
+            print(f"\n📝 {C_BOLD}{T[lang]['context_prompt']}:{C_RESET}")
+            entered_context = input(f" {T[lang]['context_input']} [{state.get('max_model_len', '2048')}]: ").strip()
+            if entered_context:
+                try:
+                    val = int(entered_context)
+                    if val > 0:
+                        state["max_model_len"] = str(val)
+                        save_state(state)
+                        print(f"{C_LIME}[OK] {T[lang]['context_success']}{C_RESET}")
+                    else:
+                        print(f"{C_PINK}[ERR] El valor debe ser un entero positivo / Value must be a positive integer{C_RESET}")
+                except ValueError:
+                    print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+        elif sub_opc == "8":
             print(f"\n🔄 {T[lang]['defaults_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
@@ -596,16 +664,19 @@ def settings_menu(local_hostname, local_ip):
             state["pipeline_parallel_size"] = "2"
             state["tensor_parallel_size"] = "1"
             state["gpu_memory_utilization"] = "0.90"
+            state["quantization"] = ""
+            state["max_model_len"] = "2048"
             save_state(state)
             print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "7":
-            ping_menu(local_hostname, local_ip)
-        elif sub_opc == "8":
-            break
         elif sub_opc == "9":
+            ping_menu(local_hostname, local_ip)
+        elif sub_opc == "10":
+            break
+        elif sub_opc == "11":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
+
 
 
 
@@ -727,9 +798,41 @@ def models_menu(local_hostname, local_ip):
             sys.exit(0)
 
 
-def main():
+def verify_wsl_network(lang):
+    if os.name == 'nt':
+        wsl_config = os.path.join(os.path.expanduser("~"), ".wslconfig")
+        has_mirrored = False
+        if os.path.exists(wsl_config):
+            try:
+                with open(wsl_config, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    if "networkingmode" in content.lower().replace(" ", "") and "mirrored" in content.lower().replace(" ", ""):
+                        has_mirrored = True
+            except Exception:
+                pass
+        
+        if not has_mirrored:
+            print(f"\n{C_ORANGE}⚠️  [ADVERTENCIA / WARNING] {C_RESET}")
+            if lang == "es":
+                print(f" {C_BOLD}No se ha detectado el modo espejo (mirrored) en WSL2.{C_RESET}")
+                print(f" Esto es crítico para la intercomunicación de Ray entre tus ordenadores.")
+                print(f" Por favor, asegúrate de crear el archivo {C_CYAN}%USERPROFILE%\\.wslconfig{C_RESET} con:")
+                print(f"   [wsl2]")
+                print(f"   networkingMode=mirrored")
+            else:
+                print(f" {C_BOLD}WSL2 mirrored network mode was not detected.{C_RESET}")
+                print(f" This is critical for Ray inter-communication between devices.")
+                print(f" Please ensure your {C_CYAN}%USERPROFILE%\\.wslconfig{C_RESET} file contains:")
+                print(f"   [wsl2]")
+                print(f"   networkingMode=mirrored")
+            print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+            time.sleep(3)
 
+
+def main():
+    wsl_checked = False
     while True:
+
         state = load_state()
         local_hostname = socket.gethostname().upper()
         local_ip = get_local_ip()
@@ -737,6 +840,11 @@ def main():
         master_hostname = state.get("master_hostname", "").upper()
         master_ip = state.get("master_ip", "")
         lang = state.get("language", "es")
+        
+        if not wsl_checked:
+            verify_wsl_network(lang)
+            wsl_checked = True
+
         
         # Determinar rol dinámico basado en el archivo de estado centralizado
         if local_hostname == master_hostname:
