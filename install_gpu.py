@@ -110,7 +110,12 @@ T = {
         "models_download_start": "Descargando modelo en segundo plano a través de Docker (esto puede tardar)...",
         "models_download_success": "Modelo descargado con éxito.",
         "models_download_error": "Error al descargar el modelo. Verifica tu conexión e ID de repositorio.",
-        "models_prompt_custom": "Introduce el ID de Hugging Face del modelo (ej: Qwen/Qwen2.5-VL-7B-Instruct): "
+        "models_prompt_custom": "Introduce el ID de Hugging Face del modelo (ej: Qwen/Qwen2.5-VL-7B-Instruct): ",
+        "menu_update": "Actualizar Orquestador (Git Pull desde GitHub)",
+        "update_run": "Buscando actualizaciones en GitHub (git pull)...",
+        "update_success": "Orquestador actualizado con éxito. Reinicia el asistente para aplicar los cambios.",
+        "update_failed": "No se pudo actualizar. Asegúrate de tener Git instalado y configurado en esta carpeta."
+
 
     },
     "en": {
@@ -199,8 +204,13 @@ T = {
         "models_download_start": "Downloading model in background via Docker (this might take a while)...",
         "models_download_success": "Model downloaded successfully.",
         "models_download_error": "Error downloading model. Check connection and repository ID.",
-        "models_prompt_custom": "Enter Hugging Face Model ID (e.g., Qwen/Qwen2.5-VL-7B-Instruct): "
+        "models_prompt_custom": "Enter Hugging Face Model ID (e.g., Qwen/Qwen2.5-VL-7B-Instruct): ",
+        "menu_update": "Update Orchestrator (Git Pull from GitHub)",
+        "update_run": "Checking for updates on GitHub (git pull)...",
+        "update_success": "Orchestrator successfully updated. Please restart the assistant to apply changes.",
+        "update_failed": "Failed to update. Make sure Git is installed and configured in this folder."
     }
+
 
 }
 
@@ -744,11 +754,14 @@ def main():
         print(f" {C_LIME}[4]{C_RESET} {T[lang]['menu_gpu']}")
         print(f" {C_LIME}[5]{C_RESET} {T[lang]['menu_instructions']}")
         
+        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_update']}")
+        
         # Opción de Idioma Dinámica
         lang_str = "English" if lang == "es" else "Español"
-        print(f" {C_LIME}[6]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
-        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_exit']}")
+        print(f" {C_LIME}[7]{C_RESET} {T[lang]['menu_lang']} ({lang_str})")
+        print(f" {C_LIME}[8]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+
         
         opc = input(f" {C_BOLD}{T[lang]['select_option']}{C_RESET}").strip()
         
@@ -875,15 +888,31 @@ def main():
 
             
         elif opc == "6":
+            print(f"\n🔄 {T[lang]['update_run']}")
+            try:
+                res = subprocess.run(["git", "pull"], capture_output=True, text=True)
+                print(res.stdout)
+                if res.returncode == 0:
+                    print(f"{C_LIME}[SUCCESS] {T[lang]['update_success']}{C_RESET}")
+                else:
+                    print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}{C_RESET}")
+                    if res.stderr:
+                        print(f"Details: {res.stderr}")
+            except Exception as e:
+                print(f"{C_PINK}[ERROR] {T[lang]['update_failed']}: {e}{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+            
+        elif opc == "7":
             # Alternar idioma y guardarlo en el archivo de estado compartido
             state["language"] = "en" if lang == "es" else "es"
             save_state(state)
             print(f"\n🔄 Cambiando idioma a Inglés..." if lang == "es" else f"\n🔄 Switching language to Spanish...")
             time.sleep(0.5)
             
-        elif opc == "7":
+        elif opc == "8":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
+
 
 
 if __name__ == '__main__':
