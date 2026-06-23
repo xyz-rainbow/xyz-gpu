@@ -79,6 +79,15 @@ T = {
         "context_label": "Límite de Contexto",
         "settings_startup": "Encender al inicio del sistema",
         "startup_success": "Inicio automático actualizado con éxito.",
+        "menu_farm": "Granja de Móviles (Mobile USB Farm)",
+        "farm_title": "AJUSTES DE GRANJA DE MÓVILES USB",
+        "farm_toggle": "Activar / Desactivar Granja de Móviles",
+        "farm_nodes": "Modificar Número de Nodos Móviles",
+        "farm_port": "Modificar Puerto Inicial del Reenvío",
+        "farm_success_toggle": "Estado de la granja de móviles actualizado.",
+        "farm_success_nodes": "Número de nodos móviles actualizado con éxito.",
+        "farm_success_port": "Puerto inicial actualizado con éxito.",
+        "farm_back": "Volver a Ajustes",
 
 
 
@@ -197,6 +206,15 @@ T = {
         "context_label": "Context Limit",
         "settings_startup": "Start on system boot",
         "startup_success": "Auto-start setting updated successfully.",
+        "menu_farm": "Mobile Farm (Mobile USB Farm)",
+        "farm_title": "MOBILE USB FARM CONFIGURATION",
+        "farm_toggle": "Toggle Mobile USB Farm",
+        "farm_nodes": "Modify Number of Mobile Nodes",
+        "farm_port": "Modify Forward Start Port",
+        "farm_success_toggle": "Mobile farm status updated.",
+        "farm_success_nodes": "Number of mobile nodes successfully updated.",
+        "farm_success_port": "Start port successfully updated.",
+        "farm_back": "Back to Settings",
 
 
 
@@ -384,6 +402,71 @@ docker compose --env-file "{env_file}" up -d
             except Exception:
                 pass
 
+def generate_litellm_config(state):
+    enabled = state.get("mobile_farm_enabled", False)
+    num_nodes = int(state.get("mobile_farm_nodes", 7))
+    start_port = int(state.get("mobile_farm_start_port", 50051))
+    
+    config = {
+        "model_list": [
+            {
+                "model_name": "hybrid-model",
+                "litellm_params": {
+                    "model": "openai/vllm",
+                    "api_base": "http://localhost:8000/v1",
+                    "api_key": "any-key",
+                    "rpm": 100,
+                    "tpm": 100000
+                }
+            }
+        ],
+        "router_settings": {
+            "routing_strategy": "failover",
+            "allowed_fails": 2,
+            "cooldown_time": 10
+        }
+    }
+    
+    if enabled and num_nodes > 0:
+        for i in range(1, num_nodes + 1):
+            port = start_port + i - 1
+            config["model_list"].append({
+                "model_name": "hybrid-model",
+                "litellm_params": {
+                    "model": f"openai/mobile-node-{i}",
+                    "api_base": f"http://localhost:{port}/v1",
+                    "api_key": "any-key",
+                    "rpm": 15
+                },
+                "fallback_value": True
+            })
+            
+    yaml_lines = ["model_list:"]
+    for model in config["model_list"]:
+        yaml_lines.append(f"  - model_name: {model['model_name']}")
+        yaml_lines.append("    litellm_params:")
+        yaml_lines.append(f"      model: {model['litellm_params']['model']}")
+        yaml_lines.append(f"      api_base: {model['litellm_params']['api_base']}")
+        yaml_lines.append(f"      api_key: \"{model['litellm_params']['api_key']}\"")
+        if "rpm" in model['litellm_params']:
+            yaml_lines.append(f"      rpm: {model['litellm_params']['rpm']}")
+        if "tpm" in model['litellm_params']:
+            yaml_lines.append(f"      tpm: {model['litellm_params']['tpm']}")
+        if model.get("fallback_value"):
+            yaml_lines.append("    fallback_value: true")
+        yaml_lines.append("")
+        
+    yaml_lines.append("router_settings:")
+    yaml_lines.append(f"  routing_strategy: {config['router_settings']['routing_strategy']}")
+    yaml_lines.append(f"  allowed_fails: {config['router_settings']['allowed_fails']}")
+    yaml_lines.append(f"  cooldown_time: {config['router_settings']['cooldown_time']}")
+    
+    try:
+        with open("litellm-config.yaml", "w", encoding="utf-8") as f:
+            f.write("\n".join(yaml_lines) + "\n")
+    except Exception:
+        pass
+
 
 def load_state():
     local_hostname = socket.gethostname().upper()
@@ -400,6 +483,9 @@ def load_state():
             "quantization": "",
             "max_model_len": "2048",
             "startup_enabled": True,
+            "mobile_farm_enabled": False,
+            "mobile_farm_nodes": "7",
+            "mobile_farm_start_port": "50051",
             "language": detect_system_language(),
             "registered_nodes": {
                 local_hostname: local_ip
@@ -407,6 +493,7 @@ def load_state():
         }
         save_state(default_state)
         update_startup_shortcut(True)
+        generate_litellm_config(default_state)
         return default_state
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -424,9 +511,16 @@ def load_state():
             state["max_model_len"] = "2048"
         if "startup_enabled" not in state:
             state["startup_enabled"] = True
+        if "mobile_farm_enabled" not in state:
+            state["mobile_farm_enabled"] = False
+        if "mobile_farm_nodes" not in state:
+            state["mobile_farm_nodes"] = "7"
+        if "mobile_farm_start_port" not in state:
+            state["mobile_farm_start_port"] = "50051"
             
         save_state(state)
         update_startup_shortcut(state.get("startup_enabled", True))
+        generate_litellm_config(state)
             
         if state["registered_nodes"].get(local_hostname) != local_ip:
             state["registered_nodes"][local_hostname] = local_ip
@@ -443,6 +537,10 @@ def load_state():
             "gpu_memory_utilization": "0.90",
             "quantization": "",
             "max_model_len": "2048",
+            "startup_enabled": True,
+            "mobile_farm_enabled": False,
+            "mobile_farm_nodes": "7",
+            "mobile_farm_start_port": "50051",
             "language": detect_system_language(),
             "registered_nodes": {
                 local_hostname: local_ip
@@ -453,6 +551,7 @@ def save_state(state):
     try:
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=4, ensure_ascii=False)
+        generate_litellm_config(state)
     except Exception as e:
         print(f"\n{C_PINK}[ERR] No se pudo guardar el archivo de estado central: {e}{C_RESET}")
 
@@ -670,6 +769,76 @@ def ping_menu(local_hostname, local_ip):
                 print(f"\n{C_PINK}[ERR] {T[lang]['err_invalid']}{C_RESET}")
                 time.sleep(1)
 
+def mobile_farm_menu(local_hostname, local_ip):
+    while True:
+        state = load_state()
+        master_hostname = state.get("master_hostname", "").upper()
+        lang = state.get("language", "es")
+        
+        if local_hostname == master_hostname:
+            role_label = f"{C_CYAN}[ MASTER / HEAD ]{C_RESET}"
+        else:
+            role_label = f"{C_PINK}[ WORKER NODE ]{C_RESET}"
+            
+        print_full_header(state, local_hostname, local_ip, role_label)
+        print(f" {C_BOLD}{T[lang]['farm_title']}:{C_RESET}")
+        
+        farm_enabled = state.get("mobile_farm_enabled", False)
+        farm_enabled_str = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if farm_enabled else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
+        
+        print(f"  {C_LIME}[1]{C_RESET} {T[lang]['farm_toggle']} {farm_enabled_str}")
+        print(f"  {C_LIME}[2]{C_RESET} {T[lang]['farm_nodes']} [{state.get('mobile_farm_nodes', '7')}]")
+        print(f"  {C_LIME}[3]{C_RESET} {T[lang]['farm_port']} [{state.get('mobile_farm_start_port', '50051')}]")
+        print(f"  {C_LIME}[4]{C_RESET} {T[lang]['farm_back']}")
+        print(f"  {C_LIME}[5]{C_RESET} {T[lang]['menu_exit']}")
+        print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
+        
+        opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
+        
+        if opc == "1":
+            new_val = not farm_enabled
+            state["mobile_farm_enabled"] = new_val
+            save_state(state)
+            print(f"\n{C_LIME}[OK] {T[lang]['farm_success_toggle']}{C_RESET}")
+            trigger_auto_restart_if_active(state, local_hostname)
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "2":
+            entered_nodes = input(f"\n📝 {T[lang]['farm_nodes']} (0-10): ").strip()
+            if entered_nodes:
+                try:
+                    val = int(entered_nodes)
+                    if 0 <= val <= 10:
+                        state["mobile_farm_nodes"] = str(val)
+                        save_state(state)
+                        print(f"{C_LIME}[OK] {T[lang]['farm_success_nodes']}{C_RESET}")
+                        trigger_auto_restart_if_active(state, local_hostname)
+                    else:
+                        print(f"{C_PINK}[ERR] Debe ser un número entre 0 y 10.{C_RESET}")
+                except ValueError:
+                    print(f"{C_PINK}[ERR] Formato no válido.{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "3":
+            entered_port = input(f"\n📝 {T[lang]['farm_port']}: ").strip()
+            if entered_port:
+                try:
+                    val = int(entered_port)
+                    if 1024 <= val <= 65535:
+                        state["mobile_farm_start_port"] = str(val)
+                        save_state(state)
+                        print(f"{C_LIME}[OK] {T[lang]['farm_success_port']}{C_RESET}")
+                        trigger_auto_restart_if_active(state, local_hostname)
+                    else:
+                        print(f"{C_PINK}[ERR] Debe ser un puerto entre 1024 y 65535.{C_RESET}")
+                except ValueError:
+                    print(f"{C_PINK}[ERR] Formato no válido.{C_RESET}")
+            input(f"\n{T[lang]['press_enter']}")
+        elif opc == "4":
+            break
+        elif opc == "5":
+            print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
+            sys.exit(0)
+
+
 def settings_menu(local_hostname, local_ip):
     while True:
         state = load_state()
@@ -694,13 +863,16 @@ def settings_menu(local_hostname, local_ip):
         print(f"  {C_LIME}[6]{C_RESET} {T[lang]['settings_quant']}")
         print(f"  {C_LIME}[7]{C_RESET} {T[lang]['settings_context']}")
         
-        startup_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("startup_enabled", True) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
-        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
+        farm_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("mobile_farm_enabled", False) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
+        print(f"  {C_LIME}[8]{C_RESET} {T[lang]['menu_farm']} {farm_status}")
         
-        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_defaults']}")
-        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_ping']}")
-        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['settings_back']}")
-        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['menu_exit']}")
+        startup_status = f"{C_LIME}[ ACTIVADO / ON ]{C_RESET}" if state.get("startup_enabled", True) else f"{C_PINK}[ DESACTIVADO / OFF ]{C_RESET}"
+        print(f"  {C_LIME}[9]{C_RESET} {T[lang]['settings_startup']} {startup_status}")
+        
+        print(f"  {C_LIME}[10]{C_RESET} {T[lang]['settings_defaults']}")
+        print(f"  {C_LIME}[11]{C_RESET} {T[lang]['settings_ping']}")
+        print(f"  {C_LIME}[12]{C_RESET} {T[lang]['settings_back']}")
+        print(f"  {C_LIME}[13]{C_RESET} {T[lang]['menu_exit']}")
         print(f"{C_CYAN} ─────────────────────────────────────────────────────────────────────────────────────────{C_RESET}")
         
         sub_opc = input(f" {C_BOLD}{T[lang]['select_settings_option']}{C_RESET}").strip()
@@ -797,6 +969,8 @@ def settings_menu(local_hostname, local_ip):
                     print(f"{C_PINK}[ERR] Formato no válido / Invalid format{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
         elif sub_opc == "8":
+            mobile_farm_menu(local_hostname, local_ip)
+        elif sub_opc == "9":
             current_val = state.get("startup_enabled", True)
             new_val = not current_val
             state["startup_enabled"] = new_val
@@ -804,7 +978,7 @@ def settings_menu(local_hostname, local_ip):
             update_startup_shortcut(new_val)
             print(f"\n{C_LIME}[OK] {T[lang]['startup_success']}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "9":
+        elif sub_opc == "10":
             print(f"\n🔄 {T[lang]['defaults_run']}")
             state["master_hostname"] = local_hostname
             state["master_ip"] = local_ip
@@ -815,16 +989,19 @@ def settings_menu(local_hostname, local_ip):
             state["quantization"] = ""
             state["max_model_len"] = "2048"
             state["startup_enabled"] = True
+            state["mobile_farm_enabled"] = False
+            state["mobile_farm_nodes"] = "7"
+            state["mobile_farm_start_port"] = "50051"
             save_state(state)
             update_startup_shortcut(True)
             print(f"{C_LIME}[SUCCESS] {T[lang]['defaults_success']}{C_RESET}")
             trigger_auto_restart_if_active(state, local_hostname)
             input(f"\n{T[lang]['press_enter']}")
-        elif sub_opc == "10":
-            ping_menu(local_hostname, local_ip)
         elif sub_opc == "11":
-            break
+            ping_menu(local_hostname, local_ip)
         elif sub_opc == "12":
+            break
+        elif sub_opc == "13":
             print(f"\n{C_PINK}Saliendo del gestor xyz-gpu. ¡Buen código!{C_RESET}\n" if lang == "es" else f"\n{C_PINK}Exiting xyz-gpu manager. Happy coding!{C_RESET}\n")
             sys.exit(0)
 

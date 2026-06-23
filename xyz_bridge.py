@@ -56,7 +56,10 @@ T = {
         "forwards_cleared": "Todos los reenvíos se han limpiado correctamente.",
         "current_forwards": "Reenvíos de puertos activos:",
         "target_port_prompt": "Introduce el puerto del servidor LLM en el móvil (por defecto 8080): ",
-        "laptop_ip_help": "Nodos registrados en el clúster (detectados automáticamente):"
+        "laptop_ip_help": "Nodos registrados en el clúster (detectados automáticamente):",
+        "farm_disabled_warning": "La granja de móviles está desactivada en los ajustes del sistema. Los reenvíos no se aplicarán.",
+        "farm_zero_nodes": "El número máximo de nodos móviles está configurado en 0 o desactivado. No se reenviará ningún puerto.",
+        "farm_max_nodes_warn": "Se detectaron {total} móviles conectados, pero la granja de móviles está limitada a un máximo de {max} nodos en los ajustes."
     },
     "en": {
         "title": "USB ADB BRIDGE / MOBILE CLUSTER",
@@ -86,7 +89,10 @@ T = {
         "forwards_cleared": "All port forwards have been cleared.",
         "current_forwards": "Active port forwards:",
         "target_port_prompt": "Enter the LLM server port on the phone (default 8080): ",
-        "laptop_ip_help": "Registered nodes in cluster (auto-detected):"
+        "laptop_ip_help": "Registered nodes in cluster (auto-detected):",
+        "farm_disabled_warning": "The mobile farm is disabled in the system settings. Port forwards will not be applied.",
+        "farm_zero_nodes": "The maximum number of mobile nodes is set to 0 or disabled. No ports will be forwarded.",
+        "farm_max_nodes_warn": "Detected {total} connected mobile phones, but the mobile farm is limited to a maximum of {max} nodes in the settings."
     }
 }
 
@@ -236,15 +242,43 @@ def main():
                     target_port = int(target_port)
                 
                 # Configurar reenvío local
-                start_port = 50051
-                for idx, serial in enumerate(devices):
-                    local_port = start_port + idx
-                    print(f"  ├── " + T[lang]['forwarding_device'].format(local_port=local_port, target_port=target_port, serial=serial))
-                    success, err = run_adb_command(["-s", serial, "forward", f"tcp:{local_port}", f"tcp:{target_port}"])
-                    if success:
-                        print(f"  └── {C_LIME}{T[lang]['success_forward']}{C_RESET}")
-                    else:
-                        print(f"  └── {C_PINK}{T[lang]['err_forward'].format(serial=serial)}: {err}{C_RESET}")
+                # Cargar configuración dinámica de la granja
+                state = {}
+                if os.path.exists(STATE_FILE):
+                    try:
+                        with open(STATE_FILE, "r", encoding="utf-8") as f:
+                            state = json.load(f)
+                    except Exception:
+                        pass
+                
+                farm_enabled = state.get("mobile_farm_enabled", False)
+                try:
+                    farm_nodes = int(state.get("mobile_farm_nodes", "7"))
+                except ValueError:
+                    farm_nodes = 7
+                try:
+                    start_port = int(state.get("mobile_farm_start_port", "50051"))
+                except ValueError:
+                    start_port = 50051
+
+                if not farm_enabled:
+                    print(f"\n{C_ORANGE}⚠️  [WARN] {T[lang]['farm_disabled_warning']}{C_RESET}")
+                
+                if farm_nodes == 0 or not farm_enabled:
+                    print(f"\n{C_PINK}⚠️  [INFO] {T[lang]['farm_zero_nodes']}{C_RESET}")
+                else:
+                    active_devices = devices[:farm_nodes]
+                    if len(devices) > farm_nodes:
+                        print(f"\n{C_ORANGE}⚠️  [WARN] {T[lang]['farm_max_nodes_warn'].format(max=farm_nodes, total=len(devices))}{C_RESET}")
+                    
+                    for idx, serial in enumerate(active_devices):
+                        local_port = start_port + idx
+                        print(f"  ├── " + T[lang]['forwarding_device'].format(local_port=local_port, target_port=target_port, serial=serial))
+                        success, err = run_adb_command(["-s", serial, "forward", f"tcp:{local_port}", f"tcp:{target_port}"])
+                        if success:
+                            print(f"  └── {C_LIME}{T[lang]['success_forward']}{C_RESET}")
+                        else:
+                            print(f"  └── {C_PINK}{T[lang]['err_forward'].format(serial=serial)}: {err}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
             
         elif opc == "2":
@@ -284,19 +318,47 @@ def main():
                     target_port = int(target_port)
                 
                 # Configurar reenvío en este nodo apuntando al adb server del portátil
-                start_port = 50051
+                # Cargar configuración dinámica de la granja
+                state = {}
+                if os.path.exists(STATE_FILE):
+                    try:
+                        with open(STATE_FILE, "r", encoding="utf-8") as f:
+                            state = json.load(f)
+                    except Exception:
+                        pass
+                
+                farm_enabled = state.get("mobile_farm_enabled", False)
+                try:
+                    farm_nodes = int(state.get("mobile_farm_nodes", "7"))
+                except ValueError:
+                    farm_nodes = 7
+                try:
+                    start_port = int(state.get("mobile_farm_start_port", "50051"))
+                except ValueError:
+                    start_port = 50051
+
                 # Limpiar reenvíos locales previos en este nodo
                 subprocess.run(["adb", "forward", "--remove-all"], capture_output=True)
+
+                if not farm_enabled:
+                    print(f"\n{C_ORANGE}⚠️  [WARN] {T[lang]['farm_disabled_warning']}{C_RESET}")
                 
-                for idx, serial in enumerate(devices):
-                    local_port = start_port + idx
-                    print(f"  ├── " + T[lang]['forwarding_device'].format(local_port=local_port, target_port=target_port, serial=serial))
-                    # forward local port tcp:local_port to the target device connected on the remote ADB server
-                    success, err = run_adb_command(["-s", serial, "forward", f"tcp:{local_port}", f"tcp:{target_port}"], adb_host=laptop_ip)
-                    if success:
-                        print(f"  └── {C_LIME}{T[lang]['success_forward']}{C_RESET}")
-                    else:
-                        print(f"  └── {C_PINK}{T[lang]['err_forward'].format(serial=serial)}: {err}{C_RESET}")
+                if farm_nodes == 0 or not farm_enabled:
+                    print(f"\n{C_PINK}⚠️  [INFO] {T[lang]['farm_zero_nodes']}{C_RESET}")
+                else:
+                    active_devices = devices[:farm_nodes]
+                    if len(devices) > farm_nodes:
+                        print(f"\n{C_ORANGE}⚠️  [WARN] {T[lang]['farm_max_nodes_warn'].format(max=farm_nodes, total=len(devices))}{C_RESET}")
+                    
+                    for idx, serial in enumerate(active_devices):
+                        local_port = start_port + idx
+                        print(f"  ├── " + T[lang]['forwarding_device'].format(local_port=local_port, target_port=target_port, serial=serial))
+                        # forward local port tcp:local_port to the target device connected on the remote ADB server
+                        success, err = run_adb_command(["-s", serial, "forward", f"tcp:{local_port}", f"tcp:{target_port}"], adb_host=laptop_ip)
+                        if success:
+                            print(f"  └── {C_LIME}{T[lang]['success_forward']}{C_RESET}")
+                        else:
+                            print(f"  └── {C_PINK}{T[lang]['err_forward'].format(serial=serial)}: {err}{C_RESET}")
             input(f"\n{T[lang]['press_enter']}")
             
         elif opc == "3":
